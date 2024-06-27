@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+
+# Variables from ./arch-vars
+source ../vars/arch-vars
+
+echo "Setting up environment for an arch based distribution."
+
+# Workspace and dotfiles
+if [[ -d "$HOME/Workspace" ]]; then
+    echo "Creating workspace directory as ~/Workspace..."
+    mkdir $HOME/Workspace
+fi
+echo "Cloning dotfiles repository to workspace..."
+git clone https://github.com/Aapok0/dotfiles.git $HOME/Workspace/dotfiles
+
+# Install ZSH
+echo "Installing ZSH..."
+pacman -S zsh
+echo "Installing plugins, prompt theme and font for ZSH..."
+git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git $HOME/Workspace/dotfiles/.config/zsh/plugins/fast-syntax-highlighting
+git clone https://github.com/zsh-users/zsh-autosuggestions.git $HOME/Workspace/dotfiles/.config/zsh/plugins/zsh-autosuggestions
+git clone https://github.com/zsh-users/zsh-completions.git $HOME/Workspace/dotfiles/.config/zsh/plugins/zsh-completions
+git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $HOME/Workspace/dotfiles/.config/zsh/themes/powerlevel10k
+yay -S ttf-meslo-nerd-font-powerlevel10k
+
+# Install basic packages
+echo "Syncing package databases and upgrading system packages with pacman..."
+sudo pacman -Syu --noconfirm || { echo "Failed to update package database and upgrade packages."; exit 1; }
+echo "Installing basic packages with pacman..."
+for pkg in "${basic_packages[@]}"; do
+    echo "Installing $pkg..."
+    pacman -S --noconfirm "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+done
+echo "Syncing package databases and upgrading system packages with yay..."
+yay -Syu || { echo "Failed to update package database and upgrade packages."; exit 1; }
+echo "Installing basic packages with yay...echo "Installing basic packages with yay...""
+for pkg in "${basic_packages_yay[@]}"; do
+    echo "Installing $pkg..."
+    yay -S "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+done
+
+# Setup ZSH
+echo "Setting up ZSH configuration..."
+if [ -d "$HOME/.config/zsh" ]; then
+    if [ -d "$HOME/.config/zsh.bak" ]; then
+        read -p"Backup of $HOME/.config/zsh directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/zsh.bak
+            mv $HOME/.config/zsh $HOME/.config/zsh.bak
+    else
+        mv $HOME/.config/zsh $HOME/.config/zsh.bak
+        echo "Found existing configuration directory for ZSH. Backed it up as $HOME/.config/zsh.bak."
+    fi
+fi
+echo "Linking ZSH configuration to $HOME/.config with stow..."
+stow -vRt $HOME $HOME/Workspace/dotfiles/zsh
+chsh -s $(which zsh) || true
+if [ "$(whoami)" = "root" ]; then
+    echo "Switched to ZSH."
+else
+    # Force logout to apply the new default shell immediately
+    exec zsh
+fi
+
+# Install node
+echo "Installing nvm and node..."
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+nvm install node
+
+# Install tfswitch
+echo "Installing tfswitch..."
+curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash
+
+# Setup neovim
+echo "Setting up Neovim configuration..."
+if [ -d "$HOME/.config/nvim" ]; then
+    if [ -d "$HOME/.config/nvim.bak" ]; then
+        read -p"Backup of $HOME/.config/nvim directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/nvim.bak
+            mv $HOME/.config/nvim $HOME/.config/nvim.bak
+    else
+        mv $HOME/.config/nvim $HOME/.config/nvim.bak
+        echo "Found existing configuration directory for Neovim. Backed it up as $HOME/.config/nvim.bak."
+    fi
+fi
+echo "Linking Neovim configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/nvim
+
+# Setup tmux
+echo "Setting up tmux configuration..."
+if [ -d "$HOME/.config/tmux" ]; then
+    if [ -d "$HOME/.config/tmux.bak" ]; then
+        read -p"Backup of $HOME/.config/tmux directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/tmux.bak
+            mv $HOME/.config/tmux $HOME/.config/tmux.bak
+    else
+        mv $HOME/.config/tmux $HOME/.config/tmux.bak
+        echo "Found existing configuration directory for tmux. Backed it up as $HOME/.config/tmux.bak."
+    fi
+fi
+echo "Linking tmux configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/tmux
+echo "Installing tmux plugin manager..."
+git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
+echo "Linking tmux tools to /usr/local/bin..."
+stow -vRt $HOME $HOME/Workspace/dotfiles/tmux-tools
+
+# Install i3 and dependencies (and create Screenshots dir)
+echo "Installing i3 related packages with pacman..."
+for pkg in "${i3_packages[@]}"; do
+    echo "Installing $pkg..."
+    pacman -S --noconfirm "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+done
+echo "Installing i3 related packages with yay..."
+for pkg in "${i3_packages_yay[@]}"; do
+    echo "Installing $pkg..."
+    yay -S "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+done
+
+# Setup i3
+echo "Setting up i3 configuration..."
+if [ -d "$HOME/.config/i3" ]; then
+    if [ -d "$HOME/.config/i3.bak" ]; then
+        read -p"Backup of $HOME/.config/i3 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/i3.bak
+            mv $HOME/.config/i3 $HOME/.config/i3.bak
+    else
+        mv $HOME/.config/i3 $HOME/.config/i3.bak
+        echo "Found existing configuration directory for i3. Backed it up as $HOME/.config/i3.bak."
+    fi
+fi
+echo "Linking i3 configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/i3
+
+# Setup dunst
+echo "Setting up dunst configuration..."
+if [ -d "$HOME/.config/dunst" ]; then
+    if [ -d "$HOME/.config/dunst.bak" ]; then
+        read -p"Backup of $HOME/.config/dunst directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/dunst.bak
+            mv $HOME/.config/dunst $HOME/.config/dunst.bak
+    else
+        mv $HOME/.config/dunst $HOME/.config/dunst.bak
+        echo "Found existing configuration directory for dunst. Backed it up as $HOME/.config/dunst.bak."
+    fi
+fi
+echo "Linking dunst configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/dunst
+
+# Setup rofi
+echo "Setting up rofi configuration..."
+if [ -d "$HOME/.config/rofi" ]; then
+    if [ -d "$HOME/.config/rofi.bak" ]; then
+        read -p"Backup of $HOME/.config/rofi directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/rofi.bak
+            mv $HOME/.config/rofi $HOME/.config/rofi.bak
+    else
+        mv $HOME/.config/rofi $HOME/.config/rofi.bak
+        echo "Found existing configuration directory for rofi. Backed it up as $HOME/.config/rofi.bak."
+    fi
+fi
+echo "Linking rofi configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/rofi
+
+# Setup picom
+echo "Setting up picom configuration..."
+if [ -d "$HOME/.config/picom" ]; then
+    if [ -d "$HOME/.config/picom.bak" ]; then
+        read -p"Backup of $HOME/.config/picom directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.config/picom.bak
+            mv $HOME/.config/picom $HOME/.config/picom.bak
+    else
+        mv $HOME/.config/picom $HOME/.config/picom.bak
+        echo "Found existing configuration directory for picom. Backed it up as $HOME/.config/picom.bak."
+    fi
+fi
+echo "Linking picom configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/picom
+
+# Create screenshot directory
+if [[ -d "$HOME/Screenshots" ]]; then
+    echo "Creating directory for screenshots..."
+    mkdir $HOME/Screenshots
+fi
+
+# Install apps
+echo "Installing apps with pacman..."
+for app in "${apps[@]}"; do
+    echo "Installing $app..."
+    pacman -S --noconfirm "$app" || { echo "Failed to install $app."; exit 1; }
+done
+echo "Installing i3 packages with yay..."
+for app in "${apps_yay[@]}"; do
+    echo "Installing $app..."
+    yay -S "$app" || { echo "Failed to install $app."; exit 1; }
+done

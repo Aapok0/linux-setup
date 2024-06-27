@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+
+basic_packages=(
+    "git"
+    "curl"
+    "wget"
+    "sed"
+    "awk"
+    "grep"
+    "inetutils" # telnet
+    "openbsd-netcat"
+    "openssh"
+    "python"
+    "htop"
+    "eza"
+    "bat"
+    "git-delta"
+    "zoxide"
+    "vim"
+    "neovim"
+    "tmux"
+    "fzf"
+    "fd"
+    "ripgrep"
+    "xclip"
+    "tldr"
+    "Thefuck"
+    "entr"
+    "ffmpeg"
+    "pnpm"#???
+)
+
+basic_packages_yay=(
+    "azure-cli"
+    "flyctl"
+    "python-pipx"#???
+)
+
+apps=(
+    "kitty"
+    "firefox"
+    "thunar"
+    "discord"
+    "thunderbird"
+)
+
+apps_yay=(
+    "spotify"
+    "bitwarden"
+    "signal-desktop"
+    "whatsapp-for-linux"
+)
+
+i3_packages=(
+    "dex"
+    "feh"
+    "picom"
+    "dunst"
+    "rofi"
+    "playerctl"
+    "scrot"
+    "polkit-gnome"
+    "autotiling" #???
+    "blueberry"
+)
+
+i3_packages_yay=(
+    "xorg-xset" # xset
+    "rofi-greenclip"
+    "bitwarden-rofi" #???
+    "alsa-utils" # amixer
+    "network-manager-applet "
+)

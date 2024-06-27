@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+if [[ -f /etc/os-release ]]; then
+    source /etc/os-release
+    if [[ $ID_LIKE =~ "debian" ]]; then
+        sudo source scripts/setup-debian
+    elif [[ $ID_LIKE =~ "arch" ]]; then
+        sudo source scripts/setup-arch
+    else
+        echo "Unknown distribution in ID_LIKE. Use setup-debian or setup-arch directly, if you know they match the distribution."
+    fi
+else
+    echo "/etc/os-release not found. Use setup-debian or setup-arch directly, if you know they match the distribution."
+fi
