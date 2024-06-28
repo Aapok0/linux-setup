@@ -3,6 +3,21 @@
 # Variables from ./arch-vars
 source ../vars/arch-vars
 
+# Config directory backup function
+function dir_backup() {
+    if [ -d "$HOME/.config/$1" ]; then
+        if [ -d "$HOME/.config/$1.bak" ]; then
+            read -p"Backup of $HOME/.config/$1 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+                rm -rf $HOME/.config/$1.bak
+                mv $HOME/.config/$1 $HOME/.config/$1.bak
+        else
+            mv $HOME/.config/$1 $HOME/.config/$1.bak
+            echo "Found existing configuration directory for $1. Backed it up as $HOME/.config/$1.bak."
+        fi
+    fi
+}
+
 echo "Setting up environment for an arch based distribution."
 
 # Workspace and dotfiles
@@ -41,17 +56,7 @@ done
 
 # Setup ZSH
 echo "Setting up ZSH configuration..."
-if [ -d "$HOME/.config/zsh" ]; then
-    if [ -d "$HOME/.config/zsh.bak" ]; then
-        read -p"Backup of $HOME/.config/zsh directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/zsh.bak
-            mv $HOME/.config/zsh $HOME/.config/zsh.bak
-    else
-        mv $HOME/.config/zsh $HOME/.config/zsh.bak
-        echo "Found existing configuration directory for ZSH. Backed it up as $HOME/.config/zsh.bak."
-    fi
-fi
+dir_backup "zsh"
 echo "Linking ZSH configuration to $HOME/.config with stow..."
 stow -vRt $HOME $HOME/Workspace/dotfiles/zsh
 chsh -s $(which zsh) || true
@@ -71,35 +76,21 @@ nvm install node
 echo "Installing tfswitch..."
 curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash
 
+# Setup bat
+echo "Setting up bat configuration..."
+dir_backup "bat"
+echo "Linking bat configuration to $HOME/.config with stow..."
+stow  -vRt $HOME $HOME/Workspace/dotfiles/bat
+
 # Setup neovim
 echo "Setting up Neovim configuration..."
-if [ -d "$HOME/.config/nvim" ]; then
-    if [ -d "$HOME/.config/nvim.bak" ]; then
-        read -p"Backup of $HOME/.config/nvim directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/nvim.bak
-            mv $HOME/.config/nvim $HOME/.config/nvim.bak
-    else
-        mv $HOME/.config/nvim $HOME/.config/nvim.bak
-        echo "Found existing configuration directory for Neovim. Backed it up as $HOME/.config/nvim.bak."
-    fi
-fi
+dir_backup "nvim"
 echo "Linking Neovim configuration to $HOME/.config with stow..."
 stow  -vRt $HOME $HOME/Workspace/dotfiles/nvim
 
 # Setup tmux
 echo "Setting up tmux configuration..."
-if [ -d "$HOME/.config/tmux" ]; then
-    if [ -d "$HOME/.config/tmux.bak" ]; then
-        read -p"Backup of $HOME/.config/tmux directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/tmux.bak
-            mv $HOME/.config/tmux $HOME/.config/tmux.bak
-    else
-        mv $HOME/.config/tmux $HOME/.config/tmux.bak
-        echo "Found existing configuration directory for tmux. Backed it up as $HOME/.config/tmux.bak."
-    fi
-fi
+dir_backup "tmux"
 echo "Linking tmux configuration to $HOME/.config with stow..."
 stow  -vRt $HOME $HOME/Workspace/dotfiles/tmux
 echo "Installing tmux plugin manager..."
@@ -121,65 +112,25 @@ done
 
 # Setup i3
 echo "Setting up i3 configuration..."
-if [ -d "$HOME/.config/i3" ]; then
-    if [ -d "$HOME/.config/i3.bak" ]; then
-        read -p"Backup of $HOME/.config/i3 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/i3.bak
-            mv $HOME/.config/i3 $HOME/.config/i3.bak
-    else
-        mv $HOME/.config/i3 $HOME/.config/i3.bak
-        echo "Found existing configuration directory for i3. Backed it up as $HOME/.config/i3.bak."
-    fi
-fi
+dir_backup "i3"
 echo "Linking i3 configuration to $HOME/.config with stow..."
 stow  -vRt $HOME $HOME/Workspace/dotfiles/i3
 
 # Setup dunst
 echo "Setting up dunst configuration..."
-if [ -d "$HOME/.config/dunst" ]; then
-    if [ -d "$HOME/.config/dunst.bak" ]; then
-        read -p"Backup of $HOME/.config/dunst directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/dunst.bak
-            mv $HOME/.config/dunst $HOME/.config/dunst.bak
-    else
-        mv $HOME/.config/dunst $HOME/.config/dunst.bak
-        echo "Found existing configuration directory for dunst. Backed it up as $HOME/.config/dunst.bak."
-    fi
-fi
+dir_backup "dunst"
 echo "Linking dunst configuration to $HOME/.config with stow..."
 stow  -vRt $HOME $HOME/Workspace/dotfiles/dunst
 
 # Setup rofi
 echo "Setting up rofi configuration..."
-if [ -d "$HOME/.config/rofi" ]; then
-    if [ -d "$HOME/.config/rofi.bak" ]; then
-        read -p"Backup of $HOME/.config/rofi directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/rofi.bak
-            mv $HOME/.config/rofi $HOME/.config/rofi.bak
-    else
-        mv $HOME/.config/rofi $HOME/.config/rofi.bak
-        echo "Found existing configuration directory for rofi. Backed it up as $HOME/.config/rofi.bak."
-    fi
-fi
+dir_backup "rofi"
 echo "Linking rofi configuration to $HOME/.config with stow..."
 stow  -vRt $HOME $HOME/Workspace/dotfiles/rofi
 
 # Setup picom
 echo "Setting up picom configuration..."
-if [ -d "$HOME/.config/picom" ]; then
-    if [ -d "$HOME/.config/picom.bak" ]; then
-        read -p"Backup of $HOME/.config/picom directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.config/picom.bak
-            mv $HOME/.config/picom $HOME/.config/picom.bak
-    else
-        mv $HOME/.config/picom $HOME/.config/picom.bak
-        echo "Found existing configuration directory for picom. Backed it up as $HOME/.config/picom.bak."
-    fi
-fi
+dir_backup "picom"
 echo "Linking picom configuration to $HOME/.config with stow..."
 stow  -vRt $HOME $HOME/Workspace/dotfiles/picom
 

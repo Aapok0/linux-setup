@@ -11,6 +11,7 @@ basic_packages=(
     "openbsd-netcat"
     "openssh"
     "python"
+    "neofetch"
     "htop"
     "eza"
     "bat"
@@ -27,13 +28,13 @@ basic_packages=(
     "Thefuck"
     "entr"
     "ffmpeg"
-    "pnpm"#???
+    "pnpm"
 )
 
 basic_packages_yay=(
     "azure-cli"
     "flyctl"
-    "python-pipx"#???
+    "python-pipx"
 )
 
 apps=(
@@ -60,7 +61,7 @@ i3_packages=(
     "playerctl"
     "scrot"
     "polkit-gnome"
-    "autotiling" #???
+    "autotiling"
     "blueberry"
 )
 
