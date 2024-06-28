@@ -3,7 +3,7 @@
 # Variables from ./arch-vars
 source ../vars/arch-vars
 
-# Config directory backup function
+# Function to backup config directory, if it already exists
 function dir_backup() {
     if [ -d "$HOME/.config/$1" ]; then
         if [ -d "$HOME/.config/$1.bak" ]; then
@@ -18,7 +18,36 @@ function dir_backup() {
     fi
 }
 
+# Function to check, if firewall tool is enabled
+setup_ufw=true
+function check_firewall_service() {
+    if command -v $2 &> /dev/null; then
+        if systemctl is-active --quiet $1; then
+            setup_ufw=false
+            echo "Service $1 is already installed and enabled. Check its rules manually after this scripts has run."
+        fi
+    fi
+}
+
 echo "Setting up environment for an arch based distribution."
+
+# Syncing package databases and upgrading packages
+echo "Syncing package databases and upgrading system packages with pacman..."
+sudo pacman -Syu --noconfirm || { echo "Failed to update package database and upgrade packages."; exit 1; }
+echo "Syncing package databases and upgrading system packages with yay..."
+yay -Syu || { echo "Failed to update package database and upgrade packages."; exit 1; }
+
+# Firewall
+echo "Checking, if there's an existing firewall service running..."
+check_firewall_service "ufw" "ufw"
+check_firewall_service "nftables" "nft"
+check_firewall_service "firewalld" "firewalld-cmd"
+if setup_ufw; then
+    echo "Installing ufw and setting up firewall..."
+    sudo pacman -S --noconfirm ufw
+    sudo systemctl enable ufw
+    sudo systemctl start ufw
+fi
 
 # Workspace and dotfiles
 if [[ -d "$HOME/Workspace" ]]; then
@@ -39,15 +68,11 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $HOME/Workspace
 yay -S ttf-meslo-nerd-font-powerlevel10k
 
 # Install basic packages
-echo "Syncing package databases and upgrading system packages with pacman..."
-sudo pacman -Syu --noconfirm || { echo "Failed to update package database and upgrade packages."; exit 1; }
 echo "Installing basic packages with pacman..."
 for pkg in "${basic_packages[@]}"; do
     echo "Installing $pkg..."
     pacman -S --noconfirm "$pkg" || { echo "Failed to install $pkg."; exit 1; }
 done
-echo "Syncing package databases and upgrading system packages with yay..."
-yay -Syu || { echo "Failed to update package database and upgrade packages."; exit 1; }
 echo "Installing basic packages with yay...echo "Installing basic packages with yay...""
 for pkg in "${basic_packages_yay[@]}"; do
     echo "Installing $pkg..."
