@@ -15,15 +15,14 @@ username="$(whoami)"
 #################
 
 # Run script that corresponds to arch or debian and stream output to a log file
-echo "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"
-sleep 2
+echo "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"; sleep 3
 mkdir -p logs # Make sure logs directory exists
 if [[ -f /etc/os-release || -n "$1" ]]; then
     source /etc/os-release
     if [[ $ID_LIKE =~ "arch" || "$1" == "arch" ]]; then
-        sudo scripts/setup-arch $username | tee logs/${timestamp}_setup.log
+        scripts/setup-arch $username | tee logs/${timestamp}_setup.log
     elif [[ $ID_LIKE =~ "debian" || "$1" == "debian" ]]; then
-        sudo scripts/setup-debian $username | tee logs/${timestamp}_setup.log
+        scripts/setup-debian $username | tee logs/${timestamp}_setup.log
     elif [[ -n "$1" && "$1" != "arch" && "$1" != "debian" ]]; then
         echo "[SETUP_ERROR] : Unsupported distribution variable provided. Variable can either be \"arch\" or \"debian\"."
         exit 1
@@ -42,7 +41,7 @@ fi
 
 if [[ $? = 0 ]]; then
     # Execute zsh
-    echo "[SETUP_INFO] : Executing zsh on current user..."
+    echo "[SETUP_INFO] : Executing zsh on current user..."; sleep 2
     exec zsh
 
     echo "SETUP FINISHED"
