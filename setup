@@ -40,19 +40,17 @@ fi
 #######################
 
 if [[ $? = 0 ]]; then
-    # Execute zsh
-    echo "[SETUP_INFO] : Executing zsh on current user..."; sleep 2
-    exec zsh
-
     echo "SETUP FINISHED"
     echo "The following post setup tasks should still be done:"
-    echo "1. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen."
+    echo "1. Run kitty with \"mod+enter\"."
+    echo "2. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen."
     echo "    - Does not apply, if i3 was already installed. Restart i3 with \"shift+mod r\"."
     echo "    - If your distribution did not have desktop environment or window manager before, you can start i3 by running the command \”i3\"."
-    echo "2. If a firewall was already installed, check its rules."
-    echo "3. Open tmux session with the command \"tmux\" and install tmux plugins by pressing \"ctrl+space I\"."
-    echo "3. Open neovim once with command \"nvim\" and let it install all the plugins."
-    echo "5. If everything works, you can remove the old backup directories of configurations from \"~/.config\". if you want to."
+    echo "3. If a firewall was already installed, check its rules."
+    echo "4. Open tmux session with the command \"tmux\" and install tmux plugins by pressing \"ctrl+space I\"."
+    echo "5. Open neovim once with command \"nvim\" and let it install all the plugins."
+    echo "6. If everything works, you can remove the old backup directories of configurations from \"~/.config\". if you want to."
+    echo "7. Reboot the machine."
 else
     echo "[SETUP_ERROR] : Script was interrupted by an unexpected error."
 fi

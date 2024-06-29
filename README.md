@@ -40,17 +40,20 @@ chmod u+x filename
 
 ## Post setup
 
-1. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen.
+1. Run kitty with `mod+enter`.
+2. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen.
   - Does not apply, if i3 was already installed. Restart i3 with `shift+mod r`.
   - If your distribution did not have desktop environment or window manager before, you can start i3 by running the command `i3`.
 
-2. If a firewall was already installed, check its rules.
+3. If a firewall was already installed, check its rules.
 
-3. Open tmux session with the command `tmux` and install tmux plugins by pressing `ctrl+space I`.
+4. Open tmux session with the command `tmux` and install tmux plugins by pressing `ctrl+space I`.
 
-4. Open neovim once with command `nvim` and let it install all the plugins.
+5. Open neovim once with command `nvim` and let it install all the plugins.
 
-5. If everything works, you can remove the old backup directories of configurations from `~/.config`. if you want to.
+6. If everything works, you can remove the old backup directories of configurations from `~/.config`. if you want to.
+
+7. Reboot the machine.
 
 ## Potential issues
 
