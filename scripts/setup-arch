@@ -91,7 +91,7 @@ cd $HOME/Workspace/dotfiles
 # Install ZSH
 echo "[SETUP_INFO] : Installing ZSH..."; sleep 3
 sudo pacman -S --noconfirm zsh
-echo "[SETUP_INFO] : Installing plugins, prompt theme and font for ZSH..."; sleep 3
+echo "[SETUP_INFO] : Installing plugins, prompt theme, fzf-git and font for ZSH..."; sleep 3
 if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" ]; then
     echo "[SETUP_INFO] : Plugin Fast Syntax Highlighting already installed."; sleep 2
 else
@@ -112,17 +112,22 @@ if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k" ]; then
 else
     git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k
 fi
+if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" ]; then
+    echo "[SETUP_INFO] : Tool fzf-git already installed."; sleep 2
+else
+    git clone https://github.com/junegunn/fzf-git.sh.git $HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh
+fi
 yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k
 
 # Install basic packages
 echo "[SETUP_INFO] : Installing basic packages with pacman..."; sleep 3
 for pkg in "${basic_packages[@]}"; do
-    echo "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
     sudo pacman -S --noconfirm "$pkg"
 done
 echo "[SETUP_INFO] : Installing basic packages with yay..."; sleep 3
 for pkg in "${basic_packages_yay[@]}"; do
-    echo "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
     yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
 done
 
@@ -152,6 +157,9 @@ curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/
 # Setup bat
 config_setup "bat"
 
+# Setup kitty
+config_setup "kitty"
+
 # Setup neovim
 config_setup "nvim"
 
@@ -169,12 +177,12 @@ stow -vRt $HOME tmux-tools
 # Install i3 and dependencies (and create Screenshots dir)
 echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 3
 for pkg in "${i3_packages[@]}"; do
-    echo "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
     sudo pacman -S --noconfirm "$pkg"
 done
 echo "[SETUP_INFO] : Installing i3 related packages with yay..."; sleep 3
 for pkg in "${i3_packages_yay[@]}"; do
-    echo "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
     yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
 done
 
@@ -205,11 +213,11 @@ fi
 # Install apps
 echo "[SETUP_INFO] : Installing apps with pacman..."; sleep 3
 for app in "${apps[@]}"; do
-    echo "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
+    echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
     sudo pacman -S --noconfirm "$app"
 done
 echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 3
 for app in "${apps_yay[@]}"; do
-    echo "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
+    echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
     yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
 done
