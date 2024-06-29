@@ -61,7 +61,7 @@ echo "[SETUP_INFO] : Checking, if there's an existing firewall service running..
 check_firewall_service "ufw" "ufw"
 check_firewall_service "nftables" "nft"
 check_firewall_service "firewalld" "firewalld-cmd"
-if setup_ufw; then
+if $setup_ufw; then
     echo "[SETUP_INFO] : Installing ufw and setting up firewall..."; sleep 2
     pacman -S --noconfirm ufw || { echo "[SETUP_ERROR] : Failed to install ufw."; exit 1 }
     systemctl enable ufw || { echo "[SETUP_ERROR] : Failed to enable ufw."; exit 1 }

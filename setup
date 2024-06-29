@@ -40,8 +40,12 @@ fi
 ## POST SCRIPT TASKS ##
 #######################
 
-# Execute zsh
-echo "[SETUP_INFO] : Executing zsh on current user..."
-exec zsh
+if [[ $? = 0 ]]; then
+    # Execute zsh
+    echo "[SETUP_INFO] : Executing zsh on current user..."
+    exec zsh
 
-echo "SETUP FINISHED"
+    echo "SETUP FINISHED"
+else
+    echo "[SETUP_ERROR] : Script was interrupted by an unexpected error."
+fi
