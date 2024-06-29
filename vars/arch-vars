@@ -26,7 +26,7 @@ basic_packages=(
     "ripgrep"
     "xclip"
     "tldr"
-    "Thefuck"
+    "thefuck"
     "entr"
     "ffmpeg"
     "pnpm"

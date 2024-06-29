@@ -1,178 +1,202 @@
 #!/usr/bin/env bash
 
-# Variables from ./arch-vars
-source ../vars/arch-vars
+###############
+## Variables ##
+###############
 
-# Function to backup config directory, if it already exists
-function dir_backup() {
+# Arch specific variables (packages)
+source vars/arch-vars
+
+# Current user
+username=$1
+
+###############
+## Functions ##
+###############
+
+# Backup config directory, if it already exists, and stow config
+function config_setup() {
+    echo "[SETUP_INFO] : Setting up $1 configuration..."; sleep 1
     if [ -d "$HOME/.config/$1" ]; then
         if [ -d "$HOME/.config/$1.bak" ]; then
             read -p"Backup of $HOME/.config/$1 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
             if [[ "$REPLY" =~ ^[Yy]$ ]]; then
                 rm -rf $HOME/.config/$1.bak
                 mv $HOME/.config/$1 $HOME/.config/$1.bak
+            fi
         else
             mv $HOME/.config/$1 $HOME/.config/$1.bak
-            echo "Found existing configuration directory for $1. Backed it up as $HOME/.config/$1.bak."
+            echo "[SETUP_INFO] : Found existing configuration directory for $1. Backed it up as $HOME/.config/$1.bak."; sleep 3
         fi
     fi
+    echo "[SETUP_INFO] : Linking $1 configuration to $HOME/.config with stow..."; sleep 2
+    stow -vRt $HOME $HOME/Workspace/dotfiles/$1
 }
 
-# Function to check, if firewall tool is enabled
+# Check, if firewall tool is enabled
 setup_ufw=true
 function check_firewall_service() {
     if command -v $2 &> /dev/null; then
         if systemctl is-active --quiet $1; then
             setup_ufw=false
-            echo "Service $1 is already installed and enabled. Check its rules manually after this scripts has run."
+            echo "[SETUP_INFO] : Service $1 is already installed and enabled. Check its rules manually after this scripts has run."; sleep 5
         fi
     fi
 }
 
-echo "Setting up environment for an arch based distribution."
+#######################
+## ARCH SETUP SCRIPT ##
+#######################
+
+echo "[SETUP_INFO] : Setting up environment for an arch based distribution."; sleep 2
 
 # Syncing package databases and upgrading packages
-echo "Syncing package databases and upgrading system packages with pacman..."
-sudo pacman -Syu --noconfirm || { echo "Failed to update package database and upgrade packages."; exit 1; }
-echo "Syncing package databases and upgrading system packages with yay..."
-yay -Syu || { echo "Failed to update package database and upgrade packages."; exit 1; }
+echo "[SETUP_INFO] : Syncing package databases and upgrading system packages with pacman..."; sleep 2
+sudo pacman -Syu --noconfirm || { echo "[SETUP_ERROR] : Failed to update package database and upgrade packages."; exit 1 }
+echo "[SETUP_INFO] : Syncing package databases and upgrading system packages with yay..."; sleep 2
+yay -Syu --noconfirm || { echo "[SETUP_ERROR] : Failed to update package database and upgrade packages."; exit 1 }
 
 # Firewall
-echo "Checking, if there's an existing firewall service running..."
+echo "[SETUP_INFO] : Checking, if there's an existing firewall service running..."; sleep 2
 check_firewall_service "ufw" "ufw"
 check_firewall_service "nftables" "nft"
 check_firewall_service "firewalld" "firewalld-cmd"
 if setup_ufw; then
-    echo "Installing ufw and setting up firewall..."
-    sudo pacman -S --noconfirm ufw
-    sudo systemctl enable ufw
-    sudo systemctl start ufw
+    echo "[SETUP_INFO] : Installing ufw and setting up firewall..."; sleep 2
+    pacman -S --noconfirm ufw || { echo "[SETUP_ERROR] : Failed to install ufw."; exit 1 }
+    systemctl enable ufw || { echo "[SETUP_ERROR] : Failed to enable ufw."; exit 1 }
+    systemctl start ufw || { echo "[SETUP_ERROR] : Failed to start ufw."; exit 1 }
 fi
 
 # Workspace and dotfiles
 if [[ -d "$HOME/Workspace" ]]; then
-    echo "Creating workspace directory as ~/Workspace..."
+    echo "[SETUP_INFO] : Creating workspace directory as ~/Workspace..."; sleep 2
     mkdir $HOME/Workspace
+else
+    echo "[SETUP_INFO] : Workspace directory exists in ~/Workspace."; sleep 2
 fi
-echo "Cloning dotfiles repository to workspace..."
-git clone https://github.com/Aapok0/dotfiles.git $HOME/Workspace/dotfiles
+echo "[SETUP_INFO] : Cloning dotfiles repository to workspace..."; sleep 2
+if [[ -d "$HOME/Workspace/dotfiles" ]]; then
+    git clone https://github.com/Aapok0/dotfiles.git $HOME/Workspace/dotfiles
+else
+    echo "[SETUP_INFO] : Repository dotfiles already cloned to workspace."; sleep 2
+fi
 
 # Install ZSH
-echo "Installing ZSH..."
-pacman -S zsh
-echo "Installing plugins, prompt theme and font for ZSH..."
-git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git $HOME/Workspace/dotfiles/.config/zsh/plugins/fast-syntax-highlighting
-git clone https://github.com/zsh-users/zsh-autosuggestions.git $HOME/Workspace/dotfiles/.config/zsh/plugins/zsh-autosuggestions
-git clone https://github.com/zsh-users/zsh-completions.git $HOME/Workspace/dotfiles/.config/zsh/plugins/zsh-completions
-git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $HOME/Workspace/dotfiles/.config/zsh/themes/powerlevel10k
-yay -S ttf-meslo-nerd-font-powerlevel10k
+echo "[SETUP_INFO] : Installing ZSH..."; sleep 2
+pacman -S --noconfirm zsh || { echo "[SETUP_ERROR] : Failed to install zsh."; exit 1 }
+echo "[SETUP_INFO] : Installing plugins, prompt theme and font for ZSH..."; sleep 2
+if [[ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" ]]; then
+    git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting
+else
+    echo "[SETUP_INFO] : Plugin Fast Syntax Highlighting already installed."; sleep 1
+fi
+if [[ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions" ]]; then
+    git clone https://github.com/zsh-users/zsh-autosuggestions.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions
+else
+    echo "[SETUP_INFO] : Plugin ZSH Autosuggestions already installed."; sleep 1
+fi
+if [[ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions" ]]; then
+    git clone https://github.com/zsh-users/zsh-completions.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions
+else
+    echo "[SETUP_INFO] : Plugin ZSH Completions already installed."; sleep 1
+fi
+if [[ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k" ]]; then
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k
+else
+    echo "[SETUP_INFO] : Prompt theme Powerlevel10k already installed."; sleep 1
+fi
+yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k || { echo "[SETUP_ERROR] : Failed to install font MesloLGS NF."; exit 1 }
 
 # Install basic packages
-echo "Installing basic packages with pacman..."
+echo "[SETUP_INFO] : Installing basic packages with pacman..."; sleep 2
 for pkg in "${basic_packages[@]}"; do
-    echo "Installing $pkg..."
-    pacman -S --noconfirm "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+    echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
+    pacman -S --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
 done
-echo "Installing basic packages with yay...echo "Installing basic packages with yay...""
+echo "[SETUP_INFO] : Installing basic packages with yay..."; sleep 2
 for pkg in "${basic_packages_yay[@]}"; do
-    echo "Installing $pkg..."
-    yay -S "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+    echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
+    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
 done
 
 # Setup ZSH
-echo "Setting up ZSH configuration..."
-dir_backup "zsh"
-echo "Linking ZSH configuration to $HOME/.config with stow..."
-stow -vRt $HOME $HOME/Workspace/dotfiles/zsh
-chsh -s $(which zsh) || true
-if [ "$(whoami)" = "root" ]; then
-    echo "Switched to ZSH."
+config_setup "zsh"
+echo "[SETUP_INFO] : Switching shell to ZSH..."; sleep 2
+change_shell="$(chsh -s $(which zsh) $username)"
+if echo $change_shell | grep "Shell changed."; then
+    echo "[SETUP_INFO] : Switched user $username's shell to ZSH."; sleep 2
 else
-    # Force logout to apply the new default shell immediately
-    exec zsh
+    echo $change_shell
+    echo "[SETUP_ERROR] : Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."; sleep 2
 fi
 
 # Install node
-echo "Installing nvm and node..."
+echo "[SETUP_INFO] : Installing nvm and node..."; sleep 2
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 nvm install node
 
 # Install tfswitch
-echo "Installing tfswitch..."
+echo "[SETUP_INFO] : Installing tfswitch..."; sleep 2
 curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash
 
 # Setup bat
-echo "Setting up bat configuration..."
-dir_backup "bat"
-echo "Linking bat configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/bat
+config_setup "bat"
 
 # Setup neovim
-echo "Setting up Neovim configuration..."
-dir_backup "nvim"
-echo "Linking Neovim configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/nvim
+config_setup "nvim"
 
 # Setup tmux
-echo "Setting up tmux configuration..."
-dir_backup "tmux"
-echo "Linking tmux configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/tmux
-echo "Installing tmux plugin manager..."
-git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
-echo "Linking tmux tools to /usr/local/bin..."
+config_setup "tmux"
+echo "[SETUP_INFO] : Installing tmux plugin manager..."; sleep 2
+if [[ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ]]; then
+    git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
+else
+    echo "[SETUP_INFO] : tmux plugin manager (tpm) already installed."; sleep 1
+fi
+echo [SETUP_INFO] : "Linking tmux tools to /usr/local/bin..."; sleep 2
 stow -vRt $HOME $HOME/Workspace/dotfiles/tmux-tools
 
 # Install i3 and dependencies (and create Screenshots dir)
-echo "Installing i3 related packages with pacman..."
+echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 2
 for pkg in "${i3_packages[@]}"; do
-    echo "Installing $pkg..."
-    pacman -S --noconfirm "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+    echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
+    pacman -S --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
 done
-echo "Installing i3 related packages with yay..."
+echo "[SETUP_INFO] : Installing i3 related packages with yay..."; sleep 2
 for pkg in "${i3_packages_yay[@]}"; do
-    echo "Installing $pkg..."
-    yay -S "$pkg" || { echo "Failed to install $pkg."; exit 1; }
+    echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
+    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
 done
 
 # Setup i3
-echo "Setting up i3 configuration..."
-dir_backup "i3"
-echo "Linking i3 configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/i3
+config_setup "i3"
 
 # Setup dunst
-echo "Setting up dunst configuration..."
-dir_backup "dunst"
-echo "Linking dunst configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/dunst
+config_setup "dunst"
 
 # Setup rofi
-echo "Setting up rofi configuration..."
-dir_backup "rofi"
-echo "Linking rofi configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/rofi
+config_setup "rofi"
 
 # Setup picom
-echo "Setting up picom configuration..."
-dir_backup "picom"
-echo "Linking picom configuration to $HOME/.config with stow..."
-stow  -vRt $HOME $HOME/Workspace/dotfiles/picom
+config_setup "picom"
 
 # Create screenshot directory
 if [[ -d "$HOME/Screenshots" ]]; then
-    echo "Creating directory for screenshots..."
+    echo "[SETUP_INFO] : Creating directory for screenshots..."; sleep 2
     mkdir $HOME/Screenshots
+else
+    echo "[SETUP_INFO] : Screenshots directory exists in ~/Screenshots."; sleep 2
 fi
 
 # Install apps
-echo "Installing apps with pacman..."
+echo "[SETUP_INFO] : Installing apps with pacman..."; sleep 2
 for app in "${apps[@]}"; do
-    echo "Installing $app..."
-    pacman -S --noconfirm "$app" || { echo "Failed to install $app."; exit 1; }
+    echo "[SETUP_INFO] : Installing $app..."; sleep 1
+    pacman -S --noconfirm "$app" || { echo "[SETUP_ERROR] : Failed to install $app."; exit 1 }
 done
-echo "Installing i3 packages with yay..."
+echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 2
 for app in "${apps_yay[@]}"; do
-    echo "Installing $app..."
-    yay -S "$app" || { echo "Failed to install $app."; exit 1; }
+    echo "[SETUP_INFO] : Installing $app..."; sleep 1
+    yay -S --answerclean Installed --answerdiff None --noconfirm "$app" || { echo "[SETUP_ERROR] : Failed to install $app."; exit 1 }
 done

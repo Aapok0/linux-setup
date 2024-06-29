@@ -51,9 +51,9 @@ chmod u+x filename
 
 ## Potential issues
 
-The main script might not recognize, if your distribution is arch or debian based. If you know that your distribution is either, you can run the corresponding script:
+The main script might not recognize, if your distribution is arch or debian based. If you know that your distribution is either, you can run the setup script with arch or debian as a variable:
 
 ```bash
-./setup_arch
+./setup "arch"
 #or
-./setup_debian
+./setup "debian"

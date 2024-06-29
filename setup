@@ -1,14 +1,47 @@
 #!/usr/bin/env bash
 
-if [[ -f /etc/os-release ]]; then
+###############
+## VARIABLES ##
+###############
+
+# Create timestamp for log file
+timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
+
+# Save current user's username to variable
+username="$(whoami)"
+
+#################
+## MAIN SCRIPT ##
+#################
+
+# Run script that corresponds to arch or debian and stream output to a log file
+echo "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"
+sleep 2
+mkdir -p logs # Make sure logs directory exists
+if [[ -f /etc/os-release || -n "$1" ]]; then
     source /etc/os-release
-    if [[ $ID_LIKE =~ "debian" ]]; then
-        sudo source scripts/setup-debian
-    elif [[ $ID_LIKE =~ "arch" ]]; then
-        sudo source scripts/setup-arch
+    if [[ $ID_LIKE =~ "arch" || "$1" == "arch" ]]; then
+        sudo scripts/setup-arch $username | tee log/${timestamp}_setup.log
+    elif [[ $ID_LIKE =~ "debian" || "$1" == "debian" ]]; then
+        sudo scripts/setup-debian $username | tee log/${timestamp}_setup.log
+    elif [[ -n "$1" && "$1" != "arch" && "$1" != "debian" ]]; then
+        echo "[SETUP_ERROR] : Unsupported distribution variable provided. Variable can either be \"arch\" or \"debian\"."
+        exit 1
     else
-        echo "Unknown distribution in ID_LIKE. Use setup-debian or setup-arch directly, if you know they match the distribution."
+        echo "[SETUP_ERROR] : Unknown distribution in ID_LIKE. Provide arch or debian as a variable, if you know it applies to your distribution. For example: ./setup \"arch\""
+        exit 1
     fi
 else
-    echo "/etc/os-release not found. Use setup-debian or setup-arch directly, if you know they match the distribution."
+    echo "[SETUP_ERROR] : /etc/os-release not found. Provide arch or debian as a variable, if you know it applies to your distribution. For example: ./setup \"arch\""
+    exit 1
 fi
+
+#######################
+## POST SCRIPT TASKS ##
+#######################
+
+# Execute zsh
+echo "[SETUP_INFO] : Executing zsh on current user..."
+exec zsh
+
+echo "SETUP FINISHED"
