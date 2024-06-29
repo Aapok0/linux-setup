@@ -33,7 +33,7 @@ function config_setup() {
         fi
     fi
     echo "[SETUP_INFO] : Linking $1 configuration to $HOME/.config with stow..."; sleep 3
-    stow -vRt $HOME $HOME/Workspace/dotfiles/$1
+    stow -vRt $HOME $1
 }
 
 # Check, if firewall tool is enabled
@@ -84,6 +84,10 @@ else
     git clone https://github.com/Aapok0/dotfiles.git $HOME/Workspace/dotfiles
 fi
 
+# Move to dotfiles directory for stow
+echo "[SETUP_INFO] : Moving to dotfiles directory for stow..."; sleep 3
+cd $HOME/Workspace/dotfiles
+
 # Install ZSH
 echo "[SETUP_INFO] : Installing ZSH..."; sleep 3
 sudo pacman -S --noconfirm zsh
@@ -133,14 +137,17 @@ else
     echo "[SETUP_ERROR] : Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."; sleep 3
 fi
 
-# Install node
+# Install nvm, activate nvm and install node
 echo "[SETUP_INFO] : Installing nvm and node..."; sleep 3
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | sudo bash
+export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
 nvm install node
 
 # Install tfswitch
 echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
-curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash
+curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | sudo bash
 
 # Setup bat
 config_setup "bat"
@@ -157,7 +164,7 @@ else
     git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
 fi
 echo [SETUP_INFO] : "Linking tmux tools to /usr/local/bin..."; sleep 3
-stow -vRt $HOME $HOME/Workspace/dotfiles/tmux-tools
+stow -vRt $HOME tmux-tools
 
 # Install i3 and dependencies (and create Screenshots dir)
 echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 3
@@ -182,6 +189,10 @@ config_setup "rofi"
 
 # Setup picom
 config_setup "picom"
+
+# Move back to script directory
+echo "[SETUP_INFO] : Moving back to script directory..."; sleep 3
+cd -
 
 # Create screenshot directory
 if [ -d "$HOME/Screenshots" ]; then
