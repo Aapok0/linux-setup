@@ -10,6 +10,9 @@ source vars/arch-vars
 # Current user
 username=$1
 
+# Whether to install and setup ufw firewall
+setup_ufw=true
+
 ###############
 ## Functions ##
 ###############
@@ -34,7 +37,6 @@ function config_setup() {
 }
 
 # Check, if firewall tool is enabled
-setup_ufw=true
 function check_firewall_service() {
     if command -v $2 &> /dev/null; then
         if systemctl is-active --quiet $1; then
@@ -52,9 +54,9 @@ echo "[SETUP_INFO] : Setting up environment for an arch based distribution."; sl
 
 # Syncing package databases and upgrading packages
 echo "[SETUP_INFO] : Syncing package databases and upgrading system packages with pacman..."; sleep 2
-sudo pacman -Syu --noconfirm || { echo "[SETUP_ERROR] : Failed to update package database and upgrade packages."; exit 1 }
+pacman -Syu --noconfirm
 echo "[SETUP_INFO] : Syncing package databases and upgrading system packages with yay..."; sleep 2
-yay -Syu --noconfirm || { echo "[SETUP_ERROR] : Failed to update package database and upgrade packages."; exit 1 }
+yay -Syu --noconfirm
 
 # Firewall
 echo "[SETUP_INFO] : Checking, if there's an existing firewall service running..."; sleep 2
@@ -63,9 +65,9 @@ check_firewall_service "nftables" "nft"
 check_firewall_service "firewalld" "firewalld-cmd"
 if $setup_ufw; then
     echo "[SETUP_INFO] : Installing ufw and setting up firewall..."; sleep 2
-    pacman -S --noconfirm ufw || { echo "[SETUP_ERROR] : Failed to install ufw."; exit 1 }
-    systemctl enable ufw || { echo "[SETUP_ERROR] : Failed to enable ufw."; exit 1 }
-    systemctl start ufw || { echo "[SETUP_ERROR] : Failed to start ufw."; exit 1 }
+    pacman -S --noconfirm ufw
+    systemctl enable ufw
+    systemctl start ufw
 fi
 
 # Workspace and dotfiles
@@ -84,7 +86,7 @@ fi
 
 # Install ZSH
 echo "[SETUP_INFO] : Installing ZSH..."; sleep 2
-pacman -S --noconfirm zsh || { echo "[SETUP_ERROR] : Failed to install zsh."; exit 1 }
+pacman -S --noconfirm zsh
 echo "[SETUP_INFO] : Installing plugins, prompt theme and font for ZSH..."; sleep 2
 if [[ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" ]]; then
     git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting
@@ -106,18 +108,18 @@ if [[ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k" ]]; the
 else
     echo "[SETUP_INFO] : Prompt theme Powerlevel10k already installed."; sleep 1
 fi
-yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k || { echo "[SETUP_ERROR] : Failed to install font MesloLGS NF."; exit 1 }
+yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k
 
 # Install basic packages
 echo "[SETUP_INFO] : Installing basic packages with pacman..."; sleep 2
 for pkg in "${basic_packages[@]}"; do
     echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
-    pacman -S --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
+    pacman -S --noconfirm "$pkg"
 done
 echo "[SETUP_INFO] : Installing basic packages with yay..."; sleep 2
 for pkg in "${basic_packages_yay[@]}"; do
     echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
-    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
+    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
 done
 
 # Setup ZSH
@@ -161,12 +163,12 @@ stow -vRt $HOME $HOME/Workspace/dotfiles/tmux-tools
 echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 2
 for pkg in "${i3_packages[@]}"; do
     echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
-    pacman -S --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
+    pacman -S --noconfirm "$pkg"
 done
 echo "[SETUP_INFO] : Installing i3 related packages with yay..."; sleep 2
 for pkg in "${i3_packages_yay[@]}"; do
     echo "[SETUP_INFO] : Installing $pkg..."; sleep 1
-    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg" || { echo "[SETUP_ERROR] : Failed to install $pkg."; exit 1 }
+    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
 done
 
 # Setup i3
@@ -193,10 +195,10 @@ fi
 echo "[SETUP_INFO] : Installing apps with pacman..."; sleep 2
 for app in "${apps[@]}"; do
     echo "[SETUP_INFO] : Installing $app..."; sleep 1
-    pacman -S --noconfirm "$app" || { echo "[SETUP_ERROR] : Failed to install $app."; exit 1 }
+    pacman -S --noconfirm "$app"
 done
 echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 2
 for app in "${apps_yay[@]}"; do
     echo "[SETUP_INFO] : Installing $app..."; sleep 1
-    yay -S --answerclean Installed --answerdiff None --noconfirm "$app" || { echo "[SETUP_ERROR] : Failed to install $app."; exit 1 }
+    yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
 done
