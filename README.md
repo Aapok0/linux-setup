@@ -40,10 +40,11 @@ chmod u+x filename
 
 ## Post setup
 
-1. Run kitty with `mod+enter`.
-2. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen.
+1. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen.
   - Does not apply, if i3 was already installed. Restart i3 with `shift+mod r`.
   - If your distribution did not have desktop environment or window manager before, you can start i3 by running the command `i3`.
+
+2. Run kitty with `mod+enter`.
 
 3. If a firewall was already installed, check its rules.
 
@@ -63,3 +64,9 @@ The main script might not recognize, if your distribution is arch or debian base
 ./setup "arch"
 #or
 ./setup "debian"
+
+## To be added
+
+- Swap file creation (with hibernate?)
+- Setting variables with options
+- Clean package caches at the end?

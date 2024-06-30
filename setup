@@ -42,8 +42,8 @@ fi
 if [[ $? = 0 ]]; then
     echo "SETUP FINISHED"
     echo "The following post setup tasks should still be done:"
-    echo "1. Run kitty with \"mod+enter\"."
-    echo "2. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen."
+    echo "1. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen."
+    echo "2. Run kitty with \"mod+enter\"."
     echo "    - Does not apply, if i3 was already installed. Restart i3 with \"shift+mod r\"."
     echo "    - If your distribution did not have desktop environment or window manager before, you can start i3 by running the command \”i3\"."
     echo "3. If a firewall was already installed, check its rules."

@@ -55,6 +55,17 @@ apps_yay=(
 )
 
 i3_packages=(
+    "i3-wm"
+    "i3blocks"
+    "gtk2"
+    "gtk3"
+    "gtk4"
+    "gnome-themes-extra"
+    "catppuccin-gtk-theme-mocha"
+    "qogir-gtk-theme"
+    "qogir-icon-theme"
+    "otf-firamono-nerd"
+    "arandr"
     "dex"
     "feh"
     "picom"
@@ -68,7 +79,8 @@ i3_packages=(
 )
 
 i3_packages_yay=(
-    "xorg-xset" # xset
+    "xorg-xset"
+    "xorg-xrandr"
     "rofi-greenclip"
     "bitwarden-rofi" #???
     "alsa-utils" # amixer

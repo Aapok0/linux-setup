@@ -17,8 +17,30 @@ setup_ufw=true
 ## Functions ##
 ###############
 
+# Check, if firewall tool is enabled
+_check_firewall_service () {
+    if command -v $2 &> /dev/null; then
+        if systemctl is-active --quiet $1; then
+            setup_ufw=false
+            echo "[SETUP_INFO] : Service $1 is already installed and enabled. Check its rules manually after this scripts has run."; sleep 6
+        fi
+    fi
+}
+
+# Check, if a package is installed
+_pkg_is_installed () {
+    check="$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ");"
+    if [ -n "${check}" ]; then
+        echo 0
+        return # true
+    else
+        echo 1
+        return # false
+    fi
+}
+
 # Backup config directory, if it already exists, and stow config
-function config_setup() {
+_config_setup () {
     echo "[SETUP_INFO] : Setting up $1 configuration..."; sleep 2
     if [ -d "$HOME/.config/$1" ]; then
         if [ -d "$HOME/.config/$1.bak" ]; then
@@ -36,16 +58,6 @@ function config_setup() {
     stow -vRt $HOME $1
 }
 
-# Check, if firewall tool is enabled
-function check_firewall_service() {
-    if command -v $2 &> /dev/null; then
-        if systemctl is-active --quiet $1; then
-            setup_ufw=false
-            echo "[SETUP_INFO] : Service $1 is already installed and enabled. Check its rules manually after this scripts has run."; sleep 6
-        fi
-    fi
-}
-
 #######################
 ## ARCH SETUP SCRIPT ##
 #######################
@@ -60,13 +72,19 @@ yay -Syu --noconfirm
 
 # Firewall
 echo "[SETUP_INFO] : Checking, if there's an existing firewall service running..."; sleep 3
-check_firewall_service "ufw" "ufw"
-check_firewall_service "nftables" "nft"
-check_firewall_service "firewalld" "firewalld-cmd"
+_check_firewall_service "ufw" "ufw"
+_check_firewall_service "nftables" "nft"
+_check_firewall_service "firewalld" "firewalld-cmd"
 if $setup_ufw; then
     echo "[SETUP_INFO] : Installing ufw and setting up firewall..."; sleep 3
-    sudo pacman -S --noconfirm ufw
+    if [[ $(_pkq_is_installed "ufw") == 1  ]]; then
+        sudo pacman -S --noconfirm ufw
+    else
+        echo "[SETUP_INFO] : Firewall tool ufw already installed..."; sleep 2
+    fi
+    echo "[SETUP_INFO] : Enabling firewall tool ufw..."; sleep 2
     sudo systemctl enable ufw
+    echo "[SETUP_INFO] : Starting firewall tool ufw..."; sleep 2
     sudo systemctl start ufw
 fi
 
@@ -88,9 +106,44 @@ fi
 echo "[SETUP_INFO] : Moving to dotfiles directory for stow..."; sleep 3
 cd $HOME/Workspace/dotfiles
 
+# Install and setup display manager
+if [ -f "/etc/systemd/system/display-manager.service" ]; then
+    display_manager="$(grep 'ExecStart=' /etc/systemd/system/display-manager.service | awk -F'/' '{print $NF}')"
+    if [ $display_manager != "lightdm" ]; then
+        if [[ $(_pkq_is_installed "lightdm") == 1  ]]; then
+            echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
+            sudo pacman -S --noconfirm lightdm
+        else
+            echo "[SETUP_INFO] : Display manager lightdm already installed..."; sleep 2
+        fi
+        echo "[SETUP_INFO] : Disabling display manager $display_manager..."; sleep 2
+        sudo systemctl disable $display_manager
+        echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
+        sudo systemctl enable lightdm
+    else
+        if ! sudo systemctl is-enabled lightdm; then
+            echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
+            sudo systemctl enable lightdm
+        fi
+    fi
+else
+    if [[ $(_pkq_is_installed "lightdm") == 1  ]]; then
+        echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
+        sudo pacman -S --noconfirm lightdm
+    else
+        echo "[SETUP_INFO] : Display manager lightdm already installed..."; sleep 2
+    fi
+    echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
+    sudo systemctl enable lightdm
+fi
+
 # Install ZSH
-echo "[SETUP_INFO] : Installing ZSH..."; sleep 3
-sudo pacman -S --noconfirm zsh
+echo "[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
+if [[ $(_pkq_is_installed "zsh") == 1  ]]; then
+    sudo pacman -S --noconfirm zsh
+else
+    echo "[SETUP_INFO] : Terminal emulator ZSH already installed..."; sleep 2
+fi
 echo "[SETUP_INFO] : Installing plugins, prompt theme, fzf-git and font for ZSH..."; sleep 3
 if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" ]; then
     echo "[SETUP_INFO] : Plugin Fast Syntax Highlighting already installed."; sleep 2
@@ -117,22 +170,34 @@ if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" ]; then
 else
     git clone https://github.com/junegunn/fzf-git.sh.git $HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh
 fi
-yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k
+if [[ $(_pkq_is_installed "ttf-meslo-nerd-font-powerlevel10k") == 1  ]]; then
+    yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k
+else
+    echo "[SETUP_INFO] : Font MesloLGS NF already installed..."; sleep 2
+fi
 
 # Install basic packages
 echo "[SETUP_INFO] : Installing basic packages with pacman..."; sleep 3
 for pkg in "${basic_packages[@]}"; do
-    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-    sudo pacman -S --noconfirm "$pkg"
+    if [[ $(_pkq_is_installed "$pkg") == 1  ]]; then
+        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+        sudo pacman -S --noconfirm "$pkg"
+    else
+        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
+    fi
 done
 echo "[SETUP_INFO] : Installing basic packages with yay..."; sleep 3
 for pkg in "${basic_packages_yay[@]}"; do
-    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
+    if [[ $(_pkq_is_installed "$pkg") == 1  ]]; then
+        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+        yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
+    else
+        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
+    fi
 done
 
 # Setup ZSH
-config_setup "zsh"
+_config_setup "zsh"
 echo "[SETUP_INFO] : Switching shell to ZSH..."; sleep 3
 change_shell="$(chsh -s $(which zsh) $username)"
 if echo $change_shell | grep "Shell changed."; then
@@ -155,16 +220,16 @@ echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
 curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | sudo bash
 
 # Setup bat
-config_setup "bat"
+_config_setup "bat"
 
 # Setup kitty
-config_setup "kitty"
+_config_setup "kitty"
 
 # Setup neovim
-config_setup "nvim"
+_config_setup "nvim"
 
 # Setup tmux
-config_setup "tmux"
+_config_setup "tmux"
 echo "[SETUP_INFO] : Installing tmux plugin manager..."; sleep 3
 if [ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ]; then
     echo "[SETUP_INFO] : tmux plugin manager (tpm) already installed."; sleep 2
@@ -177,26 +242,38 @@ stow -vRt $HOME tmux-tools
 # Install i3 and dependencies (and create Screenshots dir)
 echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 3
 for pkg in "${i3_packages[@]}"; do
-    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-    sudo pacman -S --noconfirm "$pkg"
+    if [[ $(_pkq_is_installed "$pkg") == 1  ]]; then
+        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+        sudo pacman -S --noconfirm "$pkg"
+    else
+        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
+    fi
 done
 echo "[SETUP_INFO] : Installing i3 related packages with yay..."; sleep 3
 for pkg in "${i3_packages_yay[@]}"; do
-    echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-    yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
+    if [[ $(_pkq_is_installed "$pkg") == 1  ]]; then
+        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+        yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
+    else
+        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
+    fi
 done
 
+# Setup gtk
+_config_setup "gtk-3.0"
+_config_setup "gtk-4.0"
+
 # Setup i3
-config_setup "i3"
+_config_setup "i3"
 
 # Setup dunst
-config_setup "dunst"
+_config_setup "dunst"
 
 # Setup rofi
-config_setup "rofi"
+_config_setup "rofi"
 
 # Setup picom
-config_setup "picom"
+_config_setup "picom"
 
 # Move back to script directory
 echo "[SETUP_INFO] : Moving back to script directory..."; sleep 3
@@ -213,11 +290,17 @@ fi
 # Install apps
 echo "[SETUP_INFO] : Installing apps with pacman..."; sleep 3
 for app in "${apps[@]}"; do
-    echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
-    sudo pacman -S --noconfirm "$app"
+    if [[ $(_pkq_is_installed "$app") == 1  ]]; then
+        echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
+        sudo pacman -S --noconfirm "$app"
+    else
+        echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
 done
 echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 3
 for app in "${apps_yay[@]}"; do
-    echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
-    yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
+    if [[ $(_pkq_is_installed "$app") == 1  ]]; then
+        echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
+        yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
+    else
+        echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
 done
