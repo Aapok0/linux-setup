@@ -104,8 +104,9 @@ echo "[SETUP_INFO] : Moving to dotfiles directory for stow..."; sleep 3
 cd $HOME/Workspace/dotfiles
 
 # Install and setup display manager
+echo "[SETUP_INFO] : Installing and setting up display manager lightdm..."; sleep 3
 if [ -f "/etc/systemd/system/display-manager.service" ]; then
-    display_manager="$(grep 'ExecStart=' /etc/systemd/system/display-manager.service | awk -F'/' '{print $NF}')"
+    display_manager="$(grep 'ExecStart=' /etc/systemd/system/display-manager.service | awk -F '/' '{print $NF}')"
     if [ $display_manager != "lightdm" ]; then
         if ! _pkg_is_installed "lightdm"; then
             echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
@@ -121,6 +122,8 @@ if [ -f "/etc/systemd/system/display-manager.service" ]; then
         if ! sudo systemctl is-enabled lightdm; then
             echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
             sudo systemctl enable lightdm
+        else
+            echo "[SETUP_INFO] : Display manager lightdm is already enabled..."; sleep 2
         fi
     fi
 else
@@ -133,6 +136,7 @@ else
     echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
     sudo systemctl enable lightdm
 fi
+_config_setup "lightdm"
 
 # Install ZSH
 echo "[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
