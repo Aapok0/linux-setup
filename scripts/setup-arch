@@ -139,6 +139,12 @@ else
     else
         echo "[SETUP_INFO] : Display manager lightdm already installed..."; sleep 2
     fi
+    if ! _pkg_is_installed "lightdm-slick-greeter"; then
+        echo "[SETUP_INFO] : Installing lightdm slick greeter..."
+        sudo pacman -S --noconfirm lightdm-slick-greeter
+    else
+        echo "[SETUP_INFO] : Lightdm slick greeter already installed..."; sleep 2
+    fi
     echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
     sudo systemctl enable lightdm
 fi
@@ -316,7 +322,7 @@ for app in "${apps[@]}"; do
         echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
     fi
 done
-echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 3
+echo "[SETUP_INFO] : Installing apps with yay..."; sleep 3
 for app in "${apps_yay[@]}"; do
     if ! _pkg_is_installed "$app"; then
         echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
