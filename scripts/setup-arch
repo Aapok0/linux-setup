@@ -193,6 +193,18 @@ for pkg in "${basic_packages_yay[@]}"; do
     fi
 done
 
+# Install nvm, activate nvm and install node
+echo "[SETUP_INFO] : Installing nvm and node..."; sleep 3
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | sudo bash
+export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
+nvm install node
+
+# Install tfswitch
+echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
+curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | sudo bash
+
 # Setup ZSH
 _config_setup "zsh"
 echo "[SETUP_INFO] : Switching shell to ZSH..."; sleep 3
@@ -203,18 +215,6 @@ else
     echo $change_shell
     echo "[SETUP_ERROR] : Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."; sleep 3
 fi
-
-# Install nvm, activate nvm and install node
-echo "[SETUP_INFO] : Installing nvm and node..."; sleep 3
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | sudo bash
-export NVM_DIR="${HOME}/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
-nvm install node
-
-# Install tfswitch
-echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
-curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | sudo bash
 
 # Setup bat
 _config_setup "bat"
