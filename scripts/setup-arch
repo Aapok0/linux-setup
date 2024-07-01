@@ -29,8 +29,7 @@ setup_ufw=true
 
 # Check, if a package is installed
 _pkg_is_installed () {
-    check="$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ")"
-    if [ -n "${check}" ]; then
+    if [ -n "$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ")" ]; then
         true
     else
         false
@@ -108,7 +107,7 @@ cd $HOME/Workspace/dotfiles
 if [ -f "/etc/systemd/system/display-manager.service" ]; then
     display_manager="$(grep 'ExecStart=' /etc/systemd/system/display-manager.service | awk -F'/' '{print $NF}')"
     if [ $display_manager != "lightdm" ]; then
-        if _pkq_is_installed "lightdm"; then
+        if _pkg_is_installed "lightdm"; then
             echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
             sudo pacman -S --noconfirm lightdm
         else
@@ -125,7 +124,7 @@ if [ -f "/etc/systemd/system/display-manager.service" ]; then
         fi
     fi
 else
-    if _pkq_is_installed "lightdm"; then
+    if _pkg_is_installed "lightdm"; then
         echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
         sudo pacman -S --noconfirm lightdm
     else
@@ -137,7 +136,7 @@ fi
 
 # Install ZSH
 echo "[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
-if _pkq_is_installed "zsh"; then
+if _pkg_is_installed "zsh"; then
     sudo pacman -S --noconfirm zsh
 else
     echo "[SETUP_INFO] : Terminal emulator ZSH already installed..."; sleep 2
@@ -168,7 +167,7 @@ if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" ]; then
 else
     git clone https://github.com/junegunn/fzf-git.sh.git $HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh
 fi
-if _pkq_is_installed "ttf-meslo-nerd-font-powerlevel10k"; then
+if _pkg_is_installed "ttf-meslo-nerd-font-powerlevel10k"; then
     yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k
 else
     echo "[SETUP_INFO] : Font MesloLGS NF already installed..."; sleep 2
@@ -177,7 +176,7 @@ fi
 # Install basic packages
 echo "[SETUP_INFO] : Installing basic packages with pacman..."; sleep 3
 for pkg in "${basic_packages[@]}"; do
-    if _pkq_is_installed "$pkg"; then
+    if _pkg_is_installed "$pkg"; then
         echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
         sudo pacman -S --noconfirm "$pkg"
     else
@@ -186,7 +185,7 @@ for pkg in "${basic_packages[@]}"; do
 done
 echo "[SETUP_INFO] : Installing basic packages with yay..."; sleep 3
 for pkg in "${basic_packages_yay[@]}"; do
-    if _pkq_is_installed "$pkg"; then
+    if _pkg_is_installed "$pkg"; then
         echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
         yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
     else
@@ -240,7 +239,7 @@ stow -vRt $HOME tmux-tools
 # Install i3 and dependencies (and create Screenshots dir)
 echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 3
 for pkg in "${i3_packages[@]}"; do
-    if _pkq_is_installed "$pkg"; then
+    if _pkg_is_installed "$pkg"; then
         echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
         sudo pacman -S --noconfirm "$pkg"
     else
@@ -249,7 +248,7 @@ for pkg in "${i3_packages[@]}"; do
 done
 echo "[SETUP_INFO] : Installing i3 related packages with yay..."; sleep 3
 for pkg in "${i3_packages_yay[@]}"; do
-    if _pkq_is_installed "$pkg"; then
+    if _pkg_is_installed "$pkg"; then
         echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
         yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
     else
@@ -288,7 +287,7 @@ fi
 # Install apps
 echo "[SETUP_INFO] : Installing apps with pacman..."; sleep 3
 for app in "${apps[@]}"; do
-    if _pkq_is_installed "$app"; then
+    if _pkg_is_installed "$app"; then
         echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
         sudo pacman -S --noconfirm "$app"
     else
@@ -296,7 +295,7 @@ for app in "${apps[@]}"; do
 done
 echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 3
 for app in "${apps_yay[@]}"; do
-    if _pkq_is_installed "$app"; then
+    if _pkg_is_installed "$app"; then
         echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
         yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
     else
