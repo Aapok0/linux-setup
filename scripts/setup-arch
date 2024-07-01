@@ -114,6 +114,12 @@ if [ -f "/etc/systemd/system/display-manager.service" ]; then
         else
             echo "[SETUP_INFO] : Display manager lightdm already installed..."; sleep 2
         fi
+        if ! _pkg_is_installed "lightdm-slick-greeter"; then
+            echo "[SETUP_INFO] : Installing lightdm slick greeter..."
+            sudo pacman -S --noconfirm lightdm-slick-greeter
+        else
+            echo "[SETUP_INFO] : Lightdm slick greeter already installed..."; sleep 2
+        fi
         echo "[SETUP_INFO] : Disabling display manager $display_manager..."; sleep 2
         sudo systemctl disable $display_manager
         echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2

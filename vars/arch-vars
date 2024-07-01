@@ -50,8 +50,8 @@ apps=(
 apps_yay=(
     "spotify"
     "bitwarden"
-    "signal-desktop"
-    "whatsapp-for-linux"
+    #"signal-desktop"
+    #"whatsapp-for-linux"
 )
 
 i3_packages=(
@@ -78,7 +78,7 @@ i3_packages_yay=(
     "xorg-xset"
     "xorg-xrandr"
     "rofi-greenclip"
-    "bitwarden-rofi" #???
+    #"bitwarden-rofi" #Install doesn't work yet. Needs specific node, which creates conflict.
     "alsa-utils" # amixer
     "network-manager-applet"
     "catppuccin-gtk-theme-mocha"
