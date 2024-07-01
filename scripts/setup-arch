@@ -29,11 +29,11 @@ setup_ufw=true
 
 # Check, if a package is installed
 _pkg_is_installed () {
-    check="$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ");"
+    check="$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ")"
     if [ -n "${check}" ]; then
-        return 0 # true
+        true
     else
-        return 1 # false
+        false
     fi
 }
 
