@@ -70,3 +70,33 @@ The main script might not recognize, if your distribution is arch or debian base
 - Swap file creation (with hibernate?)
 - Setting variables with options
 - Clean package caches at the end?
+
+## Possibly missing packages
+
+- acpi
+- archlinux-xdg-menu
+- awesome-terminal-fonts
+- dmenu
+- gvfs
+- gvfs-gphoto2
+- gvfs-mtp
+- gvfs-ntp
+- gvfs-smb
+- i3lock
+- i3status
+- jq
+- nwq-look
+- mpv
+- numlockx
+- sysstat
+- thunar-archive-plugin
+- thunar-volman
+- tumbler
+- unzip
+- xarchiver
+- xbindkeys
+- xdg-user-dirs-gtk
+- xed
+- xorg-xbacklight
+- xorg-xdpyinfo
+- zip
