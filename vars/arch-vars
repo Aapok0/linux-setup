@@ -70,11 +70,11 @@ i3_packages=(
     "playerctl"
     "scrot"
     "polkit-gnome"
-    "autotiling"
     "blueberry"
 )
 
 i3_packages_yay=(
+    "autotiling"
     "xorg-xset"
     "xorg-xrandr"
     "rofi-greenclip"

@@ -308,6 +308,7 @@ for app in "${apps[@]}"; do
         sudo pacman -S --noconfirm "$app"
     else
         echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
+    fi
 done
 echo "[SETUP_INFO] : Installing i3 packages with yay..."; sleep 3
 for app in "${apps_yay[@]}"; do
@@ -316,4 +317,5 @@ for app in "${apps_yay[@]}"; do
         yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
     else
         echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
+    fi
 done
