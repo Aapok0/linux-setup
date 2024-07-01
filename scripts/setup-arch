@@ -221,7 +221,7 @@ fi
 if [ -z $(command -v node) ]; then
     nvm install node
 else
-    "[SETUP_INFO] : Tool node already installed..."; sleep 2
+    echo "[SETUP_INFO] : Tool node already installed..."; sleep 2
 fi
 
 # Install tfswitch
@@ -229,7 +229,7 @@ if [ -z $(command -v tfswitch) ]; then
     echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
     curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash
 else
-    "[SETUP_INFO] : Tool tfswitch already installed..."; sleep 2
+    echo "[SETUP_INFO] : Tool tfswitch already installed..."; sleep 2
 fi
 
 # Setup bat

@@ -61,10 +61,6 @@ i3_packages=(
     "gtk3"
     "gtk4"
     "gnome-themes-extra"
-    "catppuccin-gtk-theme-mocha"
-    "qogir-gtk-theme"
-    "qogir-icon-theme"
-    "otf-firamono-nerd"
     "arandr"
     "dex"
     "feh"
@@ -84,5 +80,9 @@ i3_packages_yay=(
     "rofi-greenclip"
     "bitwarden-rofi" #???
     "alsa-utils" # amixer
-    "network-manager-applet "
+    "network-manager-applet"
+    "catppuccin-gtk-theme-mocha"
+    "qogir-gtk-theme"
+    "qogir-icon-theme"
+    "otf-firamono-nerd"
 )
