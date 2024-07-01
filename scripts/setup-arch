@@ -18,7 +18,7 @@ setup_ufw=true
 ###############
 
 # Check, if firewall tool is enabled
-_check_firewall_service () {
+function _check_firewall_service() {
     if command -v $2 &> /dev/null; then
         if systemctl is-active --quiet $1; then
             setup_ufw=false
@@ -28,7 +28,7 @@ _check_firewall_service () {
 }
 
 # Check, if a package is installed
-_pkg_is_installed () {
+function _pkg_is_installed() {
     check="$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ");"
     if [ -n "${check}" ]; then
         echo 0
@@ -40,7 +40,7 @@ _pkg_is_installed () {
 }
 
 # Backup config directory, if it already exists, and stow config
-_config_setup () {
+function _config_setup() {
     echo "[SETUP_INFO] : Setting up $1 configuration..."; sleep 2
     if [ -d "$HOME/.config/$1" ]; then
         if [ -d "$HOME/.config/$1.bak" ]; then
