@@ -270,11 +270,13 @@ if [ -f "$HOME/.gitconfig" ]; then
         echo "[SETUP_INFO] : Found existing configuration file for gitconfig. Backed it up as $HOME/.gitconfig.bak."; sleep 4
     fi
 fi
-echo [SETUP_INFO] : "Linking .gitconfig to ~/..."; sleep 3
+echo "[SETUP_INFO] : Linking .gitconfig to ~/..."; sleep 3
 stow -vRt $HOME gitconfig
 
 # Setup bat
 _config_setup "bat"
+echo "[SETUP_INFO] : Building bat cache to add Catppuccin Mocha theme..."; sleep 3
+bat cache --build
 
 # Setup kitty
 _config_setup "kitty"
