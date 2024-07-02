@@ -41,7 +41,7 @@ _config_setup () {
     echo "[SETUP_INFO] : Setting up $1 configuration..."; sleep 2
     if [ -d "$HOME/.config/$1" ]; then
         if [ -d "$HOME/.config/$1.bak" ]; then
-            read -p"Backup of $HOME/.config/$1 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+            read -p "Backup of $HOME/.config/$1 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
             if [[ "$REPLY" =~ ^[Yy]$ ]]; then
                 rm -rf $HOME/.config/$1.bak
                 mv $HOME/.config/$1 $HOME/.config/$1.bak
@@ -125,7 +125,7 @@ if [ -f "/etc/systemd/system/display-manager.service" ]; then
         echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
         sudo systemctl enable lightdm
     else
-        if ! sudo systemctl is-enabled lightdm; then
+        if ! sudo systemctl is-enabled lightdm > /dev/null; then
             echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
             sudo systemctl enable lightdm
         else
@@ -148,7 +148,32 @@ else
     echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
     sudo systemctl enable lightdm
 fi
-_config_setup "lightdm"
+if [ -f "/etc/lightdm/slick-greeter.conf" ]; then
+    if [ -f "/etc/lightdm/slick-greeter.conf.bak" ]; then
+        read -p "Backup of /etc/lightdm/slick-greeter.conf file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            sudo rm -f /etc/lightdm/slick-greeter.conf.bak
+            sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
+        fi
+    else
+        sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
+        echo "[SETUP_INFO] : Found existing configuration file for lightdm slick greeter. Backed it up as /etc/lightdm/slick-greeter.conf.bak."; sleep 4
+    fi
+fi
+if [ -d "/etc/lightdm/lightdm.conf.d" ]; then
+    if [ -d "/etc/lightdm/lightdm.conf.d.bak" ]; then
+        read -p "Backup of /etc/lightdm/lightdm.conf.d directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            sudo rm -rf /etc/lightdm/lightdm.conf.d.bak
+            sudo mv /etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm.conf.d.bak
+        fi
+    else
+        sudo mv /etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm.conf.d.bak
+        echo "[SETUP_INFO] : Found existing configuration file for custom lightdm. Backed it up as /etc/lightdm/lightdm.conf.d/lightdm_custom.conf.bak."; sleep 4
+    fi
+fi
+echo [SETUP_INFO] : "Linking lightdm configuration to /etc/lightdm..."; sleep 3
+sudo stow -vRt / lightdm
 
 # Install ZSH
 echo "[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
@@ -220,22 +245,6 @@ else
     echo "[SETUP_ERROR] : Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."; sleep 3
 fi
 
-# Install nvm, activate nvm and install node
-echo "[SETUP_INFO] : Installing nvm and node..."; sleep 3
-if [ -z $(command -v nvm) ]; then
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
-else
-    echo "[SETUP_INFO] : Tool nvm already installed..."; sleep 2
-fi
-if [ -z $(command -v node) ]; then
-    nvm install node
-else
-    echo "[SETUP_INFO] : Tool node already installed..."; sleep 2
-fi
-
 # Install tfswitch
 if [ -z $(command -v tfswitch) ]; then
     echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
@@ -243,6 +252,23 @@ if [ -z $(command -v tfswitch) ]; then
 else
     echo "[SETUP_INFO] : Tool tfswitch already installed..."; sleep 2
 fi
+
+# Setup gitconfig
+echo "[SETUP_INFO] : Setting up gitconfig configuration..."; sleep 2
+if [ -f "$HOME/.gitconfig" ]; then
+    if [ -f "$HOME/.gitconfig.bak" ]; then
+        read -p "Backup of $HOME/.gitconfig file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf $HOME/.gitconfig.bak
+            mv $HOME/.gitconfig $HOME/.gitconfig.bak
+        fi
+    else
+        mv $HOME/.gitconfig $HOME/.gitconfig.bak
+        echo "[SETUP_INFO] : Found existing configuration file for gitconfig. Backed it up as $HOME/.gitconfig.bak."; sleep 4
+    fi
+fi
+echo [SETUP_INFO] : "Linking .gitconfig to ~/..."; sleep 3
+stow -vRt $HOME gitconfig
 
 # Setup bat
 _config_setup "bat"
@@ -262,7 +288,7 @@ else
     git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
 fi
 echo [SETUP_INFO] : "Linking tmux tools to /usr/local/bin..."; sleep 3
-stow -vRt $HOME tmux-tools
+sudo stow -vRt / tmux-tools
 
 # Install i3 and dependencies (and create Screenshots dir)
 echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 3
@@ -285,6 +311,19 @@ for pkg in "${i3_packages_yay[@]}"; do
 done
 
 # Setup gtk
+echo "[SETUP_INFO] : Setting up gtk-2.0 configuration..."; sleep 2
+if [ -f "$HOME/.gtkrc-2.0" ]; then
+    if [ -f "$HOME/.gtkrc-2.0.bak" ]; then
+        read -p "Backup of $HOME/.gtkrc-2.0 file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -f $HOME/.gtkrc-2.0.bak
+            mv $HOME/.gtkrc-2.0 $HOME/.gtkrc-2.0.bak
+        fi
+    else
+        mv $HOME/.gtkrc-2.0 $HOME/.gtkrc-2.0.bak
+        echo "[SETUP_INFO] : Found existing configuration file for gtk-2.0. Backed it up as $HOME/.gtkrc-2.0.bak."; sleep 4
+    fi
+fi
 _config_setup "gtk-3.0"
 _config_setup "gtk-4.0"
 

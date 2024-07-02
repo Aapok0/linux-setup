@@ -40,21 +40,27 @@ chmod u+x filename
 
 ## Post setup
 
-1. If i3 installed correctly, you should be able to logout of your current session and then choose i3 in the login screen.
-  - Does not apply, if i3 was already installed. Restart i3 with `shift+mod r`.
-  - If your distribution did not have desktop environment or window manager before, you can start i3 by running the command `i3`.
+1. Reboot the machine.
 
 2. Run kitty with `mod+enter`.
 
-3. If a firewall was already installed, check its rules.
+3. Run the command/app `arandr`, set your screen/s and resolution correctly and save the file as `monitor.sh`.
 
-4. Open tmux session with the command `tmux` and install tmux plugins by pressing `ctrl+space I`.
+4. If a firewall was already installed, check its rules.
 
-5. Open neovim once with command `nvim` and let it install all the plugins.
+5. Install nvm and node (+npm) with following commands:"
 
-6. If everything works, you can remove the old backup directories of configurations from `~/.config`. if you want to.
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+exec zsh
+nvm install node
+```
 
-7. Reboot the machine.
+6. Open tmux session with the command `tmux` and install tmux plugins by pressing `ctrl+space I`.
+
+7. Open neovim once with command `nvim` and let it install all the plugins.
+
+8. If everything works, you can remove the old backup directories of configurations from `~/.config`. if you want to.
 
 ## Potential issues
 
@@ -64,6 +70,7 @@ The main script might not recognize, if your distribution is arch or debian base
 ./setup "arch"
 #or
 ./setup "debian"
+```
 
 ## To be added
 
