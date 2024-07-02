@@ -148,18 +148,7 @@ else
     echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
     sudo systemctl enable lightdm
 fi
-if [ -f "/etc/lightdm/slick-greeter.conf" ]; then
-    if [ -f "/etc/lightdm/slick-greeter.conf.bak" ]; then
-        read -p "Backup of /etc/lightdm/slick-greeter.conf file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            sudo rm -f /etc/lightdm/slick-greeter.conf.bak
-            sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
-        fi
-    else
-        sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
-        echo "[SETUP_INFO] : Found existing configuration file for lightdm slick greeter. Backed it up as /etc/lightdm/slick-greeter.conf.bak."; sleep 4
-    fi
-fi
+echo "Setting up lightdm configurations..."; sleep 3
 if [ -d "/etc/lightdm/lightdm.conf.d" ]; then
     if [ -d "/etc/lightdm/lightdm.conf.d.bak" ]; then
         read -p "Backup of /etc/lightdm/lightdm.conf.d directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
@@ -172,8 +161,22 @@ if [ -d "/etc/lightdm/lightdm.conf.d" ]; then
         echo "[SETUP_INFO] : Found existing configuration file for custom lightdm. Backed it up as /etc/lightdm/lightdm.conf.d/lightdm_custom.conf.bak."; sleep 4
     fi
 fi
-echo [SETUP_INFO] : "Linking lightdm configuration to /etc/lightdm..."; sleep 3
-sudo stow -vRt / lightdm
+echo "[SETUP_INFO] : Copying lightdm configuration to /etc/lightdm..."; sleep 3
+sudo cp -rf $HOME/Workspace/dotfiles/lightdm/etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm.conf.d
+if [ -f "/etc/lightdm/slick-greeter.conf" ]; then
+    if [ -f "/etc/lightdm/slick-greeter.conf.bak" ]; then
+        read -p "Backup of /etc/lightdm/slick-greeter.conf file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            sudo rm -f /etc/lightdm/slick-greeter.conf.bak
+            sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
+        fi
+    else
+        sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
+        echo "[SETUP_INFO] : Found existing configuration file for lightdm slick greeter. Backed it up as /etc/lightdm/slick-greeter.conf.bak."; sleep 4
+    fi
+fi
+echo "[SETUP_INFO] : Copying lightdm slick greeter configuration to /etc/lightdm..."; sleep 3
+sudo cp -f $HOME/Workspace/dotfiles/lightdm/etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf
 
 # Install ZSH
 echo "[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
