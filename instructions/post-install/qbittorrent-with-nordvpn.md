@@ -1,0 +1,7 @@
+- in preferences -> connection -> proxy server
+  - type: SOCKS5
+  - host: se.socks.nordhold.net
+  - port: 1080
+  - [X] Authentication
+    - Nordvpn service creds from nordvpn account dashboard
+  - [X] Use proxy for peer connections
