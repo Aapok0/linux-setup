@@ -1,3 +1,14 @@
 #!/usr/bin/env bash
 
 echo "TBD"
+
+# Install tfswitch
+echo -e "\n[SETUP_INFO] : Adding terraform version swithing tool..."; sleep 3
+if [ -z $(command -v tfswitch) ]; then
+    echo "[SETUP_INFO] : Installing tfswitch and creating bin directory for it..."; sleep 3
+    _echo_run mkdir -p $HOME/.local/bin
+    echo "curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash -s -- -b \$HOME/.local/bin"
+    curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash -s -- -b $HOME/.local/bin
+else
+    echo "[SETUP_INFO] : Tool tfswitch already installed..."; sleep 2
+fi

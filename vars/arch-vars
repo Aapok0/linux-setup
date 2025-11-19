@@ -10,10 +10,18 @@ basic_packages=(
     "rsync"
     "inetutils" # telnet
     "openbsd-netcat"
+    "bind"
     "openssh"
+    "7zip"
+    "unzip"
+    "unrar"
+    "jq"
     "stow"
     "python"
-    "neofetch"
+    "pyenv"
+    "tk" # pyenv dependency
+    "pnpm"
+    "fastfetch"
     "htop"
     "eza"
     "bat"
@@ -26,33 +34,88 @@ basic_packages=(
     "fd"
     "ripgrep"
     "xclip"
+    "wl-clipboard"
     "tldr"
     "thefuck"
     "entr"
     "ffmpeg"
-    "pnpm"
+    "imagemagick"
+    "poppler"
+    "yazi"
+    "exfat-utils"
 )
 
-basic_packages_yay=(
+basic_packages_aur=(
     "azure-cli"
-    "flyctl"
+    "tfswitch"
+    #"flyctl"
     "python-pipx"
+    "nvm"
 )
 
 apps=(
     "kitty"
-    "firefox"
-    "thunar"
+    #"firefox"
+    "firefox-developer-edition"
     "discord"
     "thunderbird"
+    "mpv"
+    "vlc"
+    "qalculator-qt"
+    "openrgb"
+    "virtualbox virtualbox-host-modules-arch virtualbox-host-modules-lts virtualbox-guest-utils virtualbox-guest-iso"
+    "qbittorrent"
 )
 
-apps_yay=(
+apps_aur=(
     "spotify"
     "bitwarden"
-    #"signal-desktop"
-    #"whatsapp-for-linux"
+    "nordvpn-bin"
+    "signal-desktop"
+    "whatsapp-for-linux"
+    "btrfs-assistant"
+    "onlyoffice-bin"
+    #"vr-video-player"
+    #"xr-video-player-git"
+    "vk-hdr-layer-kwin6-git" # for mpv hdr
 )
+
+gaming_packages=(
+    "steam"
+    "lutris"
+    "mangohud goverlay"
+    "lib32-mangohud"
+    "gamescope"
+    "wine wine-mono winetricks"
+)
+
+gaming_packages_aur=(
+    #"steamtinkerlaunch"
+    "protontricks protonup-qt"
+    "xone-dkms"
+    "xone-dongle-firmware"
+    #"runelite"
+)
+
+kde_packages=(
+    "kscreen"
+    "kcron"
+    "ark"
+    "plasma-nm"
+    "plasma-pa"
+    "power-profiles-daemon"
+    "bluedevil"
+    "ibus"
+    "dolphin"
+    "dolphin-plugins"
+    "kdegraphics-thumbnailers"
+    "ffmpegthumbs"
+    "flatpak"
+    "discover"
+    "spectacle"
+)
+
+kde_packages_aur=()
 
 i3_packages=(
     "i3-wm"
@@ -73,7 +136,7 @@ i3_packages=(
     "blueberry"
 )
 
-i3_packages_yay=(
+i3_packages_aur=(
     "autotiling"
     "xorg-xset"
     "xorg-xrandr"

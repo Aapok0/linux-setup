@@ -19,9 +19,9 @@ echo "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"; sleep 3
 mkdir -p logs # Make sure logs directory exists
 if [[ -f /etc/os-release || -n "$1" ]]; then
     source /etc/os-release
-    if [[ $ID_LIKE =~ "arch" || "$1" == "arch" ]]; then
+    if [[ $ID_LIKE =~ "arch" || $ID =~ "arch" || "$1" == "arch" ]]; then
         scripts/setup-arch $username | tee logs/${timestamp}_setup.log
-    elif [[ $ID_LIKE =~ "debian" || "$1" == "debian" ]]; then
+    elif [[ $ID_LIKE =~ "debian" || $ID =~ "debian" || "$1" == "debian" ]]; then
         scripts/setup-debian $username | tee logs/${timestamp}_setup.log
     elif [[ -n "$1" && "$1" != "arch" && "$1" != "debian" ]]; then
         echo "[SETUP_ERROR] : Unsupported distribution variable provided. Variable can either be \"arch\" or \"debian\"."
@@ -43,16 +43,22 @@ if [[ $? = 0 ]]; then
     echo "SETUP FINISHED"
     echo "The following post setup tasks should still be done:"
     echo "1. Reboot the machine."
-    echo "2. Run kitty with \"mod+enter\"."
-    echo "3. Run the command \"arandr\", set your screen/s and resolution correctly and save the file as \"monitor.sh\”."
+    echo "2. Run kitty (\"mod+enter\" in i3 to serach for apps)."
     echo "4. If a firewall was already installed, check its rules."
-    echo "5. Install nvm and node (+npm) with following commands:"
-    echo "    - curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+    echo "5. Install nvm and node (+npm) with following commands (skip first two steps on arch):"
+    echo "    - get install commmand from: https://github.com/nvm-sh/nvm?tab=readme-ov-file#installing-and-updating"
     echo "    - exec zsh"
     echo "    - nvm install node"
-    echo "6. Open tmux session with the command \"tmux\" and install tmux plugins by pressing \"ctrl+space I\"."
-    echo "7. Open neovim once with command \"nvim\" and let it install all the plugins."
-    echo "8. If everything works, you can remove the old backup directories of configurations from \"~/.config\". if you want to."
+    echo "6. Install latest python and set it as global (on arch only required to make virtual environments with certain version):"
+    echo "    - pyenv install -l | less"
+    echo "    - pyenv install <version_from_above_list>"
+    echo "    - pyenv global <version_from_above_list>"
+    echo "    - mkdir -p ~/Python"
+    echo "    - cd ~/Python"
+    echo "    - Create python virtual environments for your purposes: python -m venv <name>"
+    echo "7. Open tmux session with the command \"tmux\" and install tmux plugins by pressing \"ctrl+space I\"."
+    echo "8. Open neovim once with command \"nvim\" and let it install all the plugins."
+    echo "9. If everything works, you can remove the old backup directories of configurations from \"~/.config\". if you want to."
 else
     echo "[SETUP_ERROR] : Script was interrupted by an unexpected error."
 fi
