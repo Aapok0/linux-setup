@@ -4,26 +4,19 @@
 ## Variables ##
 ###############
 
-# Arch specific variables (packages)
 source vars/arch-vars
-
-# Current user
 username=$1
-
-# Whether to install and setup ufw firewall
 setup_ufw=true
 
 ###############
 ## Functions ##
 ###############
 
-# Echo a command and then run it
 _echo_run () {
     echo "$*"
     "$@"
 }
 
-# Check, if firewall tool is enabled
 _check_firewall_service () {
     if command -v $2 &> /dev/null; then
         if systemctl is-active --quiet $1; then
@@ -33,7 +26,6 @@ _check_firewall_service () {
     fi
 }
 
-# Check, if a package is installed
 _pkg_is_installed () {
     if [ -n "$(paru -Qs "$1" | grep "local" | grep "$1 ")" ]; then
         true

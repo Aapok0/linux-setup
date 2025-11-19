@@ -4,10 +4,7 @@
 ## VARIABLES ##
 ###############
 
-# Create timestamp for log file
 timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
-
-# Save current user's username to variable
 username="$(whoami)"
 
 #################
