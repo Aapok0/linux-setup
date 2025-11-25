@@ -1,61 +1,68 @@
 #!/usr/bin/env bash
-
-###############
-## VARIABLES ##
-###############
+set -o pipefail
 
 timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
 username="$(whoami)"
+LOGFILE="logs/${timestamp}_setup.log"
 
-#################
-## MAIN SCRIPT ##
-#################
+mkdir -p logs
+exec 1> >(tee -a "$LOGFILE") 2>&1
 
-# Run script that corresponds to arch or debian and stream output to a log file
-echo "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"; sleep 3
-mkdir -p logs # Make sure logs directory exists
-if [[ -f /etc/os-release || -n "$1" ]]; then
-    source /etc/os-release
-    if [[ $ID_LIKE =~ "arch" || $ID =~ "arch" || "$1" == "arch" ]]; then
-        scripts/setup-arch $username | tee logs/${timestamp}_setup.log
-    elif [[ $ID_LIKE =~ "debian" || $ID =~ "debian" || "$1" == "debian" ]]; then
-        scripts/setup-debian $username | tee logs/${timestamp}_setup.log
-    elif [[ -n "$1" && "$1" != "arch" && "$1" != "debian" ]]; then
-        echo "[SETUP_ERROR] : Unsupported distribution variable provided. Variable can either be \"arch\" or \"debian\"."
-        exit 1
-    else
-        echo "[SETUP_ERROR] : Unknown distribution in ID_LIKE. Provide arch or debian as a variable, if you know it applies to your distribution. For example: ./setup \"arch\""
+_log() {
+    local level="$1" msg="$2"
+    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg"
+}
+
+_info() {
+    _log "INFO" "$*"
+    sleep 2
+}
+
+_log "INFO" "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"; sleep 1
+
+_get_distro() {
+    [ -f /etc/os-release ] && source /etc/os-release
+    [ "$1" = "arch" ] || [ "$1" = "debian" ] && echo "$1" && return 0
+    [[ "$ID_LIKE" =~ "arch" ]] || [[ "$ID" =~ "arch" ]] && echo "arch" && return 0
+    [[ "$ID_LIKE" =~ "debian" ]] || [[ "$ID" =~ "debian" ]] && echo "debian" && return 0
+    return 1
+}
+
+main() {
+    distro=$(_get_distro "$1")
+    if [ $? -ne 0 ] || [ -z "$distro" ]; then
+        _log "ERROR" "Unknown distribution. Provide 'arch' or 'debian' as an argument."
         exit 1
     fi
-else
-    echo "[SETUP_ERROR] : /etc/os-release not found. Provide arch or debian as a variable, if you know it applies to your distribution. For example: ./setup \"arch\""
-    exit 1
-fi
 
-#######################
-## POST SCRIPT TASKS ##
-#######################
+    _info "Running setup for $distro..."
+    LOGFILE="$LOGFILE" scripts/setup-$distro $username
+    
+    if [ $? -eq 0 ]; then
+        _log "INFO" "Setup completed. Log saved to: $LOGFILE"
+        echo ""
+        echo "SETUP FINISHED"
+        echo "Post-setup tasks:"
+        echo "1. Reboot the machine"
+        echo "2. Run kitty (mod+enter in i3)"
+        echo "3. Check firewall rules if one was already installed"
+        echo "4. Install nvm and node:"
+        echo "   - Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating"
+        echo "   - exec zsh"
+        echo "   - nvm install node"
+        echo "5. Install python with pyenv (skip first two steps on arch):"
+        echo "   - pyenv install -l | less"
+        echo "   - pyenv install <version>"
+        echo "   - pyenv global <version>"
+        echo "   - mkdir -p ~/Python && cd ~/Python"
+        echo "   - python -m venv <name>"
+        echo "6. Open tmux (tmux) and install plugins (ctrl+space I)"
+        echo "7. Open neovim (nvim) to install plugins"
+        echo "8. Remove old backup directories in ~/.config if satisfied"
+    else
+        _log "ERROR" "Setup interrupted by unexpected error"
+        exit 1
+    fi
+}
 
-if [[ $? = 0 ]]; then
-    echo "SETUP FINISHED"
-    echo "The following post setup tasks should still be done:"
-    echo "1. Reboot the machine."
-    echo "2. Run kitty (\"mod+enter\" in i3 to serach for apps)."
-    echo "4. If a firewall was already installed, check its rules."
-    echo "5. Install nvm and node (+npm) with following commands (skip first two steps on arch):"
-    echo "    - get install commmand from: https://github.com/nvm-sh/nvm?tab=readme-ov-file#installing-and-updating"
-    echo "    - exec zsh"
-    echo "    - nvm install node"
-    echo "6. Install latest python and set it as global (on arch only required to make virtual environments with certain version):"
-    echo "    - pyenv install -l | less"
-    echo "    - pyenv install <version_from_above_list>"
-    echo "    - pyenv global <version_from_above_list>"
-    echo "    - mkdir -p ~/Python"
-    echo "    - cd ~/Python"
-    echo "    - Create python virtual environments for your purposes: python -m venv <name>"
-    echo "7. Open tmux session with the command \"tmux\" and install tmux plugins by pressing \"ctrl+space I\"."
-    echo "8. Open neovim once with command \"nvim\" and let it install all the plugins."
-    echo "9. If everything works, you can remove the old backup directories of configurations from \"~/.config\". if you want to."
-else
-    echo "[SETUP_ERROR] : Script was interrupted by an unexpected error."
-fi
+main "$@"

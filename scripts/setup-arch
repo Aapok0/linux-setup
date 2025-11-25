@@ -1,305 +1,259 @@
 #!/usr/bin/env bash
 
-###############
-## Variables ##
-###############
+set -o pipefail
 
 source vars/arch-vars
 username=$1
 setup_ufw=true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-###############
-## Functions ##
-###############
+exec 1> >(tee -a "$LOGFILE") 2>&1
 
-_echo_run () {
-    echo "$*"
-    "$@"
+_log() {
+    local level="$1" msg="$2"
+    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg"
 }
 
-_check_firewall_service () {
-    if command -v $2 &> /dev/null; then
-        if systemctl is-active --quiet $1; then
-            setup_ufw=false
-            echo "[SETUP_INFO] : Service $1 is already installed and enabled. Check its rules manually after this scripts has run."; sleep 6
-        fi
-    fi
+_info() {
+    _log "INFO" "$*"
+    sleep 2
 }
 
-_pkg_is_installed () {
-    if [ -n "$(paru -Qs "$1" | grep "local" | grep "$1 ")" ]; then
-        true
-    else
-        false
-    fi
+_info_long() {
+    _log "INFO" "$*"
+    sleep 3
 }
 
-# Backup config directory, if it already exists, and stow config
-_config_setup () {
-    echo -e "\n[SETUP_INFO] : Setting up $1 configuration..."; sleep 2
-    if [ -d "$HOME/.config/$1" ]; then
-        if [ -d "$HOME/.config/$1.bak" ]; then
-            read -p "Backup of $HOME/.config/$1 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-                _echo_run rm -rf $HOME/.config/$1.bak
-                _echo_run mv $HOME/.config/$1 $HOME/.config/$1.bak
-            fi
-        else
-            _echo_run mv $HOME/.config/$1 $HOME/.config/$1.bak
-            echo "[SETUP_INFO] : Found existing configuration directory for $1. Backed it up as $HOME/.config/$1.bak."; sleep 4
-        fi
-    fi
-    echo "[SETUP_INFO] : Linking $1 configuration to $HOME/.config with stow..."; sleep 3
-    _echo_run stow -vRt $HOME $1
+_error() {
+    _log "ERROR" "$*"
+    sleep 3
 }
 
-#######################
-## ARCH SETUP SCRIPT ##
-#######################
+_warn() {
+    _log "WARN" "$*"
+}
 
-echo "[SETUP_INFO] : Setting up environment for an arch based distribution."; sleep 3
+_echo_run() {
+    _log "RUN" "$*"
+    "$@" || { _error "Command failed: $*"; return 1; }
+}
 
-# Installing AUR helper, syncing package databases and upgrading packages
-echo "[SETUP_INFO] : Enabling multilib repository for pacman..."; sleep 3
-_echo_run sudo sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
-_echo_run sudo pacman -Syy
-echo -e "\n[SETUP_INFO] : Installing paru AUR helper..."; sleep 3
-if which paru &>/dev/null; then
-    echo "[SETUP_INFO] : AUR helper paru already installed..."; sleep 2
-else
-    echo "[SETUP_INFO] : Moving to home directory for installation..."; sleep 2
-    _echo_run cd $HOME
-    echo "[SETUP_INFO] : Cloning paru repository..."; sleep 2
-    _echo_run git clone https://aur.archlinux.org/paru.git
-    echo "[SETUP_INFO] : Moving to cloned repository and, installing paru dependencies and building paru package..."; sleep 2
-    _echo_run cd paru
-    _echo_run sudo pacman -S cargo
-    _echo_run makepkg -si
-fi
-echo -e "\n[SETUP_INFO] : Syncing package databases and upgrading system and AUR packages with paru..."; sleep 3
-_echo_run paru --noconfirm -Syu
+_to_ssh_url() {
+    local url=$1
+    echo "$url" | sed 's|https://github\.com/|git@github.com:|'
+}
 
-# Move back to script directory
-echo -e "\n[SETUP_INFO] : Moving back to script directory..."; sleep 3
-_echo_run cd -
-
-# Firewall
-echo -e "\n[SETUP_INFO] : Checking, if there's an existing firewall service running..."; sleep 3
-_check_firewall_service "ufw" "ufw"
-_check_firewall_service "nftables" "nft"
-_check_firewall_service "firewalld" "firewalld-cmd"
-if $setup_ufw; then
-    echo "[SETUP_INFO] : No existing firewall service running."; sleep 2
-    echo "[SETUP_INFO] : Installing ufw and setting up firewall..."; sleep 3
-    if ! _pkg_is_installed "ufw"; then
-        _echo_run paru --skipreview --noconfirm -S ufw
-    else
-        echo "[SETUP_INFO] : Firewall tool ufw already installed..."; sleep 2
+_set_ssh_remote() {
+    local repo_path=$1
+    cd "$repo_path" || return 1
+    local https_url=$(git config --get remote.origin.url)
+    local ssh_url=$(_to_ssh_url "$https_url")
+    if [ "$https_url" != "$ssh_url" ]; then
+        _echo_run git remote set-url origin "$ssh_url"
     fi
-    echo "[SETUP_INFO] : Enabling firewall tool ufw..."; sleep 2
-    _echo_run sudo systemctl enable ufw
-    echo "[SETUP_INFO] : Starting firewall tool ufw..."; sleep 2
-    _echo_run sudo systemctl start ufw
-fi
+    cd - > /dev/null || return 1
+}
 
-# Workspace and dotfiles
-echo -e "\n[SETUP_INFO] : Adding workspace and dotfiles..."; sleep 3
-if [ -d "$HOME/Workspace" ]; then
-    echo "[SETUP_INFO] : Workspace directory exists in ~/Workspace."; sleep 3
-else
-    echo "[SETUP_INFO] : Creating workspace directory as ~/Workspace..."; sleep 3
-    _echo_run mkdir $HOME/Workspace
-fi
-echo "[SETUP_INFO] : Cloning dotfiles repository to workspace..."; sleep 3
-if [ -d "$HOME/Workspace/dotfiles" ]; then
-    echo "[SETUP_INFO] : Repository dotfiles already cloned to workspace."; sleep 3
-else
-    _echo_run git clone https://github.com/Aapok0/dotfiles.git $HOME/Workspace/dotfiles
-fi
+_check_firewall_service() {
+    command -v "$2" &> /dev/null && systemctl is-active --quiet "$1" && {
+        setup_ufw=false
+        _log "INFO" "Service $1 already installed/enabled. Check rules manually."; sleep 6
+    }
+}
 
-# Move to dotfiles directory for stow
-echo "[SETUP_INFO] : Moving to dotfiles directory for stow..."; sleep 3
-_echo_run cd $HOME/Workspace/dotfiles
+_clone_if_missing() {
+    [ -d "$2" ] && {
+        _info "$1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run git clone "$3" "$2"
+}
 
-# Setup paru (add this, when config is done)
+_backup_file() {
+    [ -f "$1" ] || return 0
+    [ -f "$1.bak" ] && {
+        read -p "Backup of $1 exists. Remove and create new? [y/N]" -n 1 -r
+        [[ $REPLY =~ ^[Yy]$ ]] && _echo_run rm -rf "$1.bak"
+    } && _echo_run mv "$1" "$1.bak"
+}
 
-# Install ZSH
-echo -e "\n[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
-if ! _pkg_is_installed "zsh"; then
-    _echo_run paru --skipreview --noconfirm -S zsh
-else
-    echo "[SETUP_INFO] : Terminal emulator ZSH already installed..."; sleep 2
-fi
-echo "[SETUP_INFO] : Installing plugins, prompt theme, fzf-git and font for ZSH..."; sleep 3
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" ]; then
-    echo "[SETUP_INFO] : Plugin Fast Syntax Highlighting already installed."; sleep 2
-else
-    _echo_run git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions" ]; then
-    echo "[SETUP_INFO] : Plugin ZSH Autosuggestions already installed."; sleep 2
-else
-    _echo_run git clone https://github.com/zsh-users/zsh-autosuggestions.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions" ]; then
-    echo "[SETUP_INFO] : Plugin ZSH Completions already installed."; sleep 2
-else
-    _echo_run git clone https://github.com/zsh-users/zsh-completions.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k" ]; then
-    echo "[SETUP_INFO] : Prompt theme Starship already installed."; sleep 2
-else
-    _echo_run paru -S --skipreview --noconfirm starship
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" ]; then
-    echo "[SETUP_INFO] : Tool fzf-git already installed."; sleep 2
-else
-    _echo_run git clone https://github.com/junegunn/fzf-git.sh.git $HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh
-fi
-if ! _pkg_is_installed "ttf-meslo-nerd-font-powerlevel10k"; then
-    _echo_run paru -S --skipreview --noconfirm ttf-meslo-nerd-font-powerlevel10k
-else
-    echo "[SETUP_INFO] : Font MesloLGS NF already installed..."; sleep 2
-fi
+_backup_dir() {
+    [ -d "$1" ] || return 0
+    [ -d "$1.bak" ] && {
+        read -p "Backup of $1 exists. Remove and create new? [y/N]" -n 1 -r
+        [[ $REPLY =~ ^[Yy]$ ]] && _echo_run rm -rf "$1.bak"
+    }
+    _echo_run mv "$1" "$1.bak"
+    _info "Backed up to $1.bak"
+}
 
-# Setup starship
-echo -e "\n[SETUP_INFO] : Setting up Starship prompt theme configuration..."; sleep 2
-if [ -f "$HOME/.config/starship.toml" ]; then
-    if [ -f "$HOME/.config/starship.toml.bak" ]; then
-        read -p "Backup of $HOME/.config/starship.toml file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            _echo_run rm -rf $HOME/.config/starship.toml.bak
-            _echo_run mv $HOME/.config/starship.toml $HOME/.config/starship.toml.bak
-        fi
-    else
-        _echo_run mv $HOME/.config/starship.toml $HOME/.config/starship.toml.bak
-        echo "[SETUP_INFO] : Found existing configuration file for gitconfig. Backed it up as $HOME/.gitconfig.bak."; sleep 4
-    fi
-fi
-echo "[SETUP_INFO] : Linking starship.toml to ~/..."; sleep 3
-_echo_run stow -vRt $HOME gitconfig
+_config_setup() {
+    echo -e "\n[SETUP_INFO] : Setting up $1 configuration..."
+    sleep 2
+    _backup_dir "$HOME/.config/$1"
+    _info_long "Linking $1 to ~/.config"
+    _echo_run stow -vRt "$HOME" "$1"
+}
 
-# Install basic packages
-echo -e "\n[SETUP_INFO] : Installing basic packages..."; sleep 3
-all_basic_packages=("${basic_packages[@]}" "${basic_packages_aur[@]}")
-for pkg in "${all_basic_packages[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-        _echo_run paru --skipreview --noconfirm -S "$pkg"
-    else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
-    fi
-done
+_pkg_is_installed() {
+    paru -Qs "$1" | grep -q "local.*$1 "
+}
 
-# Setup ZSH
-_config_setup "zsh"
-echo "[SETUP_INFO] : Switching shell to ZSH..."; sleep 3
-change_shell="$(chsh -s $(which zsh) $username)"
-if echo $change_shell | grep "Shell changed."; then
-    echo "[SETUP_INFO] : Switched user $username's shell to ZSH."; sleep 3
-else
-    echo $change_shell
-    echo "[SETUP_ERROR] : Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."; sleep 3
-fi
+_install_pkg() {
+    _pkg_is_installed "$1" && {
+        _info "Package $1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run paru "${2:---skipreview --noconfirm}" -S "$1"
+}
 
-# Setup gitconfig
-echo -e "\n[SETUP_INFO] : Setting up gitconfig configuration..."; sleep 2
-if [ -f "$HOME/.gitconfig" ]; then
-    if [ -f "$HOME/.gitconfig.bak" ]; then
-        read -p "Backup of $HOME/.gitconfig file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            _echo_run rm -rf $HOME/.gitconfig.bak
-            _echo_run mv $HOME/.gitconfig $HOME/.gitconfig.bak
-        fi
-    else
-        _echo_run mv $HOME/.gitconfig $HOME/.gitconfig.bak
-        echo "[SETUP_INFO] : Found existing configuration file for gitconfig. Backed it up as $HOME/.gitconfig.bak."; sleep 4
-    fi
-fi
-echo "[SETUP_INFO] : Linking .gitconfig to ~/..."; sleep 3
-_echo_run stow -vRt $HOME gitconfig
-
-# Setup bat
-_config_setup "bat"
-echo "[SETUP_INFO] : Building bat cache to add Catppuccin Mocha theme..."; sleep 3
-_echo_run bat cache --build
-
-# Setup kitty
-_config_setup "kitty"
-
-# Setup neovim
-_config_setup "nvim"
-
-# Setup tmux
-_config_setup "tmux"
-echo "[SETUP_INFO] : Installing tmux plugin manager..."; sleep 3
-if [ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ]; then
-    echo "[SETUP_INFO] : tmux plugin manager (tpm) already installed."; sleep 2
-else
-    _echo_run git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
-fi
-echo [SETUP_INFO] : "Linking tmux tools to /usr/local/bin..."; sleep 3
-_echo_run sudo stow -vRt / tmux-tools
-
-# Move back to script directory
-echo -e "\n[SETUP_INFO] : Moving back to script directory..."; sleep 3
-_echo_run cd -
-
-# Install packages specific to KDE
-echo -e "\n[SETUP_INFO] : Installing packages for KDE plasma..."; sleep 3
-all_kde_packages=("${kde_packages[@]}" "${kde_packages_aur[@]}")
-for pkg in "${all_kde_packages[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
+_install_packages() {
+    local category="$1"
+    shift
+    local packages=("$@")
+    [ -n "$category" ] && [ "$category" != "." ] && _info_long "Installing $category..."
+    for pkg in "${packages[@]}"; do
+        _pkg_is_installed "$pkg" && {
+            _info "Package $pkg already installed"
+            continue
+        }
+        echo -e "\n[SETUP_INFO] : Installing $pkg\n"
+        sleep 2
         _echo_run paru --skipreview -S "$pkg"
+    done
+}
+
+main() {
+    _info_long "Setting up environment for an arch based distribution."
+
+    _info "Converting linux-setup repository to SSH..."
+    if [ -d "$SCRIPT_DIR/.git" ]; then
+        _set_ssh_remote "$SCRIPT_DIR"
+    fi
+
+    _info_long "Enabling multilib repository for pacman..."
+    _echo_run sudo sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
+    _echo_run sudo pacman -Syy
+    _info_long "Installing paru AUR helper..."
+    if ! command -v paru &> /dev/null; then
+        _echo_run cd "$HOME"
+        _echo_run git clone https://aur.archlinux.org/paru.git
+        _echo_run cd paru
+        _echo_run sudo pacman -S cargo
+        _echo_run makepkg -si
+    fi
+    _echo_run paru --noconfirm -Syu
+
+    _info_long "Checking if there's an existing firewall service running..."
+    _check_firewall_service "ufw" "ufw"
+    _check_firewall_service "nftables" "nft"
+    _check_firewall_service "firewalld" "firewalld-cmd"
+    if $setup_ufw; then
+        _info "No existing firewall service running."
+        _info_long "Installing ufw and setting up firewall..."
+        _install_pkg "ufw" "--skipreview --noconfirm"
+        _info "Enabling firewall tool ufw..."
+        _echo_run sudo systemctl enable ufw
+        _info "Starting firewall tool ufw..."
+        _echo_run sudo systemctl start ufw
+    fi
+
+    _info_long "Adding workspace and dotfiles..."
+    [ -d "$HOME/Workspace" ] || {
+        _info "Creating workspace directory as ~/Workspace..."
+        _echo_run mkdir "$HOME/Workspace"
+    }
+    [ -d "$HOME/Workspace/dotfiles" ] || {
+        _info "Cloning dotfiles repository to workspace..."
+        _echo_run git clone https://github.com/Aapok0/dotfiles.git "$HOME/Workspace/dotfiles"
+        _set_ssh_remote "$HOME/Workspace/dotfiles"
+    }
+
+    _info_long "Moving to dotfiles directory for stow..."
+    _echo_run cd "$HOME/Workspace/dotfiles"
+
+    _info_long "Installing terminal emulator ZSH..."
+    _install_pkg "zsh" "--skipreview --noconfirm"
+    _info_long "Installing ZSH plugins, themes, and font..."
+    _clone_if_missing "Fast Syntax Highlighting" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" \
+        "https://github.com/zdharma-continuum/fast-syntax-highlighting.git"
+    _clone_if_missing "ZSH Autosuggestions" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions" \
+        "https://github.com/zsh-users/zsh-autosuggestions.git"
+    _clone_if_missing "ZSH Completions" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions" \
+        "https://github.com/zsh-users/zsh-completions.git"
+    _install_pkg "starship" "--skipreview --noconfirm"
+    _clone_if_missing "fzf-git" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" \
+        "https://github.com/junegunn/fzf-git.sh.git"
+    _install_pkg "ttf-meslo-nerd-font-powerlevel10k" "--skipreview --noconfirm"
+
+    _info "Setting up Starship prompt theme configuration..."
+    _backup_file "$HOME/.config/starship.toml"
+    _info_long "Linking starship.toml to ~/.config"
+    _echo_run stow -vRt "$HOME" starship
+
+    _install_packages "basic packages" "${basic_packages[@]}" "${basic_packages_aur[@]}"
+
+    _config_setup "zsh"
+    _info "Switching shell to ZSH..."
+    change_shell="$(chsh -s $(which zsh) $username)"
+    if echo $change_shell | grep -q "Shell changed."; then
+        _info "Switched user $username's shell to ZSH."
     else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
+        echo $change_shell
+        _error "Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."
     fi
-done
 
-# Install apps
-echo -e "\n[SETUP_INFO] : Installing apps..."; sleep 3
-all_apps=("${apps[@]}" "${apps_aur[@]}")
-for app in "${all_apps[@]}"; do
-    if ! _pkg_is_installed "$app"; then
-        echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
-        _echo_run paru --skipreview -S "$app"
+    _info "Setting up gitconfig configuration..."
+    _backup_file "$HOME/.gitconfig"
+    _info_long "Linking .gitconfig to ~/"
+    _echo_run stow -vRt "$HOME" gitconfig
+
+    _config_setup "bat"
+    _info "Building bat cache to add Catppuccin Mocha theme..."
+    _echo_run bat cache --build
+
+    _config_setup "kitty"
+    _echo_run sed -i "s/^hide_window_decorations.*/hide_window_decorations no/" "$HOME/.config/kitty/kitty.conf"
+
+    _config_setup "nvim"
+
+    _config_setup "tmux"
+    _info "Installing tmux plugin manager..."
+    [ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ] || {
+        _echo_run git clone https://github.com/tmux-plugins/tpm "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm"
+    }
+    _info_long "Linking tmux tools to /usr/local/bin..."
+    _echo_run sudo stow -vRt / tmux-tools
+
+    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
+    _install_packages "apps" "${apps[@]}" "${apps_aur[@]}"
+    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_aur[@]}"
+
+    _info_long "Doing initial setup for nordvpn..."
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "Systemd-resolved already setup"
     else
-        echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
+        _pkg_is_installed "openresolv" && _echo_run paru -R openresolv
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     fi
-done
+    _info "Creating nordvpn group and adding user"
+    _echo_run sudo groupadd -r nordvpn
+    _echo_run sudo gpasswd -a $username nordvpn
+    _info "Enabling and starting openvpn"
+    _echo_run sudo systemctl enable --now nordvpnd.service
 
-# Setups for nordvpn
-echo -e "\n[SETUP_INFO] : Doing some initial setup for nordvpn..."; sleep 3
-echo -e "[SETUP_INFO] : Setting systemd-resolved..."; sleep 2
-if [ -f "/etc/resolv.conf.bak" ]; then
-    echo -e "[SETUP_INFO] : Systemd-resolved already setup..."; sleep 2
-else
-    if _pkg_is_installed "openresolv"; then
-        _echo_run paru -R openresolv
-    fi
-    _echo_run sudo systemctl enable --now systemd-resolved.service
-    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
-    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-fi
-echo -e "[SETUP_INFO] : Creating nordvpn group and adding user to it..."; sleep 2
-_echo_run sudo groupadd -r nordvpn
-_echo_run sudo gpasswd -a $username nordvpn
-echo -e "[SETUP_INFO] : Enabling and starting openvpn..."; sleep 2
-_echo_run sudo systemctl enable --now nordvpnd.service
+    _info_long "Setting Steam Tinker Launch as a Steam compatibility tool..."
+    _echo_run steamtinkerlaunch compat add
 
-# Install gaming related packages
-echo -e "\n[SETUP_INFO] : Installing gaming related packages..."; sleep 3
-all_gaming_packages=("${gaming_packages[@]}" "${gaming_packages_aur[@]}")
-for pkg in "${all_gaming_packages[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-        _echo_run paru --skipreview -S "$pkg"
-    else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
-    fi
-done
+    _log "INFO" "Setup completed. Log saved to: $LOGFILE"
+}
 
-# Add steamtinkerlaunch as a steam compatibility tool
-echo -e "\n[SETUP_INFO] : Setting Steam Tinker Launch as a Steam compatibility tool..."; sleep 3
-_echo_run steamtinkerlaunch compat add
+main "$@" || return 1
