@@ -4,6 +4,34 @@ For reinstalling Arch Linux with my personal preferences while preserving /home 
 
 ## Initial steps
 
+### Load Finnish keybaord layout
+
+```bash
+loadkeys fi
+```
+
+### Setup internet connection
+
+If ethernet cable is connected, the connection should work immediately. Check with:
+
+```bash
+ip link
+ping google.com
+```
+
+If trying to connect with WI-FI:
+
+```bash
+iwctl device list
+
+# Look for the device and power it on, if it isn't (for example wlan0).
+iwctl device wlan0 set-property Powered on
+
+# Scan for networks and look for the one you want to connect to,
+iwstl station wlan0 get-networks
+iwctl station wlan0 connect <your_SSID>
+```
+
 ### Backup configuration files
 
 Before starting the reinstall, backup the following configuration files to `/home/<user>/install/`. This allows you to restore your system configuration after the fresh installation:
