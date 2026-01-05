@@ -1,14 +1,309 @@
 #!/usr/bin/env bash
 
-echo "TBD"
+set -o pipefail
 
-# Install tfswitch
-echo -e "\n[SETUP_INFO] : Adding terraform version swithing tool..."; sleep 3
-if [ -z $(command -v tfswitch) ]; then
-    echo "[SETUP_INFO] : Installing tfswitch and creating bin directory for it..."; sleep 3
-    _echo_run mkdir -p $HOME/.local/bin
-    echo "curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash -s -- -b \$HOME/.local/bin"
-    curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash -s -- -b $HOME/.local/bin
-else
-    echo "[SETUP_INFO] : Tool tfswitch already installed..."; sleep 2
-fi
+source vars/debian-vars
+USERNAME=$1
+SETUP_UFW=true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+exec 1> >(tee -a "$LOGFILE") 2>&1
+
+_log() {
+    local level="$1" msg="$2"
+    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg"
+}
+
+_info() {
+    _log "INFO" "$*"
+    sleep 2
+}
+
+_info_long() {
+    _log "INFO" "$*"
+    sleep 3
+}
+
+_error() {
+    _log "ERROR" "$*"
+    sleep 3
+}
+
+_warn() {
+    _log "WARN" "$*"
+}
+
+_echo_run() {
+    _log "RUN" "$*"
+    "$@" || { _error "Command failed: $*"; return 1; }
+}
+
+_to_ssh_url() {
+    local url=$1
+    echo "$url" | sed 's|https://github\.com/|git@github.com:|'
+}
+
+_set_ssh_remote() {
+    local repo_path=$1
+    cd "$repo_path" || return 1
+    local https_url=$(git config --get remote.origin.url)
+    local ssh_url=$(_to_ssh_url "$https_url")
+    if [ "$https_url" != "$ssh_url" ]; then
+        _echo_run git remote set-url origin "$ssh_url"
+    fi
+    cd - > /dev/null || return 1
+}
+
+_check_firewall_service() {
+    command -v "$2" &> /dev/null && systemctl is-active --quiet "$1" && {
+        SETUP_UFW=false
+        _log "INFO" "Service $1 already installed/enabled. Check rules manually."; sleep 6
+    }
+}
+
+_clone_if_missing() {
+    [ -d "$2" ] && {
+        _info "$1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run git clone "$3" "$2"
+}
+
+_backup_file() {
+    [ -f "$1" ] || return 0
+    [ -f "$1.bak" ] && {
+        read -p "Backup of $1 exists. Remove and create new? [y/N]" -n 1 -r
+        [[ $REPLY =~ ^[Yy]$ ]] && _echo_run rm -rf "$1.bak"
+    } && _echo_run mv "$1" "$1.bak"
+}
+
+_backup_dir() {
+    [ -d "$1" ] || return 0
+    [ -d "$1.bak" ] && {
+        read -p "Backup of $1 exists. Remove and create new? [y/N]" -n 1 -r
+        [[ $REPLY =~ ^[Yy]$ ]] && _echo_run rm -rf "$1.bak"
+    }
+    _echo_run mv "$1" "$1.bak"
+    _info "Backed up to $1.bak"
+}
+
+_config_setup() {
+    echo -e "\n[SETUP_INFO] : Setting up $1 configuration..."
+    sleep 2
+    _backup_dir "$HOME/.config/$1"
+    _info_long "Linking $1 to ~/.config"
+    _echo_run stow -vRt "$HOME" "$1"
+}
+
+_pkg_is_installed() {
+    dpkg -l | grep -q "^ii.*$1"
+}
+
+_install_pkg() {
+    _pkg_is_installed "$1" && {
+        _info "Package $1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run sudo nala install -y "$1"
+}
+
+_install_packages() {
+    local category="$1"
+    shift
+    local packages=("$@")
+    [ -n "$category" ] && [ "$category" != "." ] && _info_long "Installing $category..."
+    for pkg in "${packages[@]}"; do
+        _pkg_is_installed "$pkg" && {
+            _info "Package $pkg already installed"
+            continue
+        }
+        echo -e "\n[SETUP_INFO] : Installing $pkg\n"
+        sleep 2
+        _echo_run sudo nala install -y "$pkg"
+    done
+}
+
+main() {
+    _info_long "Setting up environment for a Debian-based distribution."
+
+    _info "Converting linux-setup repository to SSH..."
+    if [ -d "$SCRIPT_DIR/.git" ]; then
+        _set_ssh_remote "$SCRIPT_DIR"
+    fi
+
+    _info_long "Updating package lists and upgrading system..."
+    _echo_run sudo apt-get update
+    _echo_run sudo apt-get upgrade -y
+
+    _info_long "Installing nala and apt tools..."
+    _install_packages "apt tools" "${apt_tools[@]}"
+    _echo_run sudo nala update
+
+    _info_long "Checking if there's an existing firewall service running..."
+    _check_firewall_service "ufw" "ufw"
+    _check_firewall_service "nftables" "nft"
+    _check_firewall_service "firewalld" "firewall-cmd"
+    if $SETUP_UFW; then
+        _info "No existing firewall service running."
+        _info_long "Installing ufw and setting up firewall..."
+        _install_pkg "ufw"
+        _info "Enabling firewall tool ufw..."
+        _echo_run sudo systemctl enable ufw
+        _info "Starting firewall tool ufw..."
+        _echo_run sudo systemctl start ufw
+    fi
+
+    _info_long "Adding workspace and dotfiles..."
+    [ -d "$HOME/Workspace" ] || {
+        _info "Creating workspace directory as ~/Workspace..."
+        _echo_run mkdir "$HOME/Workspace"
+    }
+    [ -d "$HOME/Workspace/dotfiles" ] || {
+        _info "Cloning dotfiles repository to workspace..."
+        _echo_run git clone https://github.com/Aapok0/dotfiles.git "$HOME/Workspace/dotfiles"
+        _set_ssh_remote "$HOME/Workspace/dotfiles"
+    }
+
+    _info_long "Moving to dotfiles directory for stow..."
+    _echo_run cd "$HOME/Workspace/dotfiles"
+
+    _info_long "Installing terminal emulator ZSH..."
+    _install_pkg "zsh"
+    _info_long "Installing ZSH plugins, themes, and font..."
+    _clone_if_missing "Fast Syntax Highlighting" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" \
+        "https://github.com/zdharma-continuum/fast-syntax-highlighting.git"
+    _clone_if_missing "ZSH Autosuggestions" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions" \
+        "https://github.com/zsh-users/zsh-autosuggestions.git"
+    _clone_if_missing "ZSH Completions" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions" \
+        "https://github.com/zsh-users/zsh-completions.git"
+    _install_pkg "starship"
+    _clone_if_missing "fzf-git" \
+        "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" \
+        "https://github.com/junegunn/fzf-git.sh.git"
+    _install_pkg "fonts-powerline"
+
+    _info "Setting up Starship prompt theme configuration..."
+    _backup_file "$HOME/.config/starship.toml"
+    _info_long "Linking starship.toml to ~/.config"
+    _echo_run stow -vRt "$HOME" starship
+
+    _install_packages "basic packages" "${basic_packages[@]}"
+
+    _config_setup "zsh"
+    _info "Switching shell to ZSH..."
+    change_shell="$(chsh -s $(which zsh) $USERNAME)"
+    if echo $change_shell | grep -q "Shell changed."; then
+        _info "Switched user $USERNAME's shell to ZSH."
+    else
+        echo $change_shell
+        _error "Failed to switch $USERNAME's shell to ZSH. The user's shell most likely already is ZSH."
+    fi
+
+    _info "Setting up gitconfig configuration..."
+    _backup_file "$HOME/.gitconfig"
+    _info_long "Linking .gitconfig to ~/"
+    _echo_run stow -vRt "$HOME" gitconfig
+
+    _config_setup "bat"
+    _info "Building bat cache to add Catppuccin Mocha theme..."
+    _echo_run bat cache --build
+
+    _config_setup "kitty"
+
+    _config_setup "nvim"
+
+    _config_setup "tmux"
+    _info "Installing tmux plugin manager..."
+    [ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ] || {
+        _echo_run git clone https://github.com/tmux-plugins/tpm "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm"
+    }
+    _info_long "Linking tmux tools to /usr/local/bin..."
+    _echo_run sudo stow -vRt / tmux-tools
+
+    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
+    _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
+    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
+
+    _info_long "Setting Steam Tinker Launch as a Steam compatibility tool..."
+    _echo_run steamtinkerlaunch compat add
+
+    _info_long "Installing extra tools via pip..."
+    _echo_run python3 -m pip install --user "${basic_packages_pip[@]}"
+
+    _info_long "Installing pyenv for Python version management..."
+    if ! command -v pyenv &> /dev/null; then
+        _info "Cloning pyenv..."
+        _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+        _info "Building pyenv..."
+        _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
+        _info "Pyenv installed to ~/.pyenv"
+        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+        echo '  export PYENV_ROOT="$HOME/.pyenv"'
+        echo '  export PATH="$PYENV_ROOT/bin:$PATH"'
+        echo '  eval "$(pyenv init --path)"'
+        echo '  eval "$(pyenv init -)"'
+    else
+        _info "Pyenv already installed"
+    fi
+
+    _info_long "Installing tfswitch for Terraform version management..."
+    if ! command -v tfswitch &> /dev/null; then
+        _info "Downloading tfswitch..."
+        _echo_run mkdir -p "$HOME/.local/bin"
+        _echo_run curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/master/install.sh | bash -s -- -b "$HOME/.local/bin"
+        _info "tfswitch installed to ~/.local/bin/tfswitch"
+        _info "Make sure ~/.local/bin is in your PATH"
+    else
+        _info "tfswitch already installed"
+    fi
+
+    _info_long "Installing nvm for Node version management..."
+    if ! command -v nvm &> /dev/null; then
+        _info "Downloading and installing nvm..."
+        _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+        _info "nvm installed"
+        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+        echo '  export NVM_DIR="$HOME/.nvm"'
+        echo '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+        echo '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+    else
+        _info "nvm already installed"
+    fi
+
+    _info_long "Doing initial setup for systemd-resolved (for DNS)..."
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "systemd-resolved already setup"
+    else
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    fi
+
+    _info_long "Setting up NordVPN..."
+    if ! command -v nordvpn &> /dev/null; then
+        _info "Adding NordVPN repository and installing..."
+        _echo_run curl https://repo.nordvpn.com/gpg/nordvpn_public.asc | sudo apt-key add -
+        _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'
+        _echo_run sudo nala update
+        _install_pkg "nordvpn"
+        _info "Creating nordvpn group and adding user"
+        _echo_run sudo groupadd -r nordvpn 2>/dev/null || true
+        _echo_run sudo gpasswd -a $USERNAME nordvpn
+        _info "Enabling and starting nordvpn service..."
+        _echo_run sudo systemctl enable nordvpnd.service
+        _echo_run sudo systemctl start nordvpnd.service
+        _info "NordVPN installed and configured"
+        _info "Login with: nordvpn login --token \"<token_from_account_here>\""
+    else
+        _info "NordVPN already installed"
+    fi
+
+    _log "INFO" "Setup completed. Log saved to: $LOGFILE"
+}
+
+main "$@" || return 1

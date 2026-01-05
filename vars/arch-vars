@@ -55,7 +55,6 @@ basic_packages_aur=(
 
 apps=(
     "kitty"
-    #"firefox"
     "firefox-developer-edition"
     "discord"
     "thunderbird"
@@ -90,7 +89,7 @@ gaming_packages=(
 )
 
 gaming_packages_aur=(
-    #"steamtinkerlaunch"
+    "steamtinkerlaunch"
     "protontricks protonup-qt"
     "xone-dkms"
     "xone-dongle-firmware"
