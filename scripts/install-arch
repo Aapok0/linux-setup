@@ -422,14 +422,123 @@ _confirm_configuration() {
                 return 0
                 ;;
             no)
-                _error "Configuration cancelled by user"
-                return 1
+                _info "Configuration cancelled by user"
+                return 2
                 ;;
             *)
                 _warn "Please enter 'yes' or 'no'"
                 ;;
         esac
     done
+}
+
+# ============================================================================
+# Partitioning functions
+# ============================================================================
+
+_prompt_format_confirmation() {
+    local device=$1
+    local response
+    
+    echo ""
+    echo "WARNING: This will DESTROY all data on $device"
+    echo "All existing partitions and data will be permanently lost."
+    echo ""
+    
+    while true; do
+        read -p "Do you want to format $device and create new partitions? (yes/no): " response
+        
+        case $response in
+            yes)
+                _warn "Formatting $device - Point of no return!"
+                return 0
+                ;;
+            no)
+                _info "Format cancelled by user"
+                return 2
+                ;;
+            *)
+                _warn "Please enter 'yes' or 'no'"
+                ;;
+        esac
+    done
+}
+
+_setup_disk_partitions() {
+    local device=$1
+    local root_size=$2
+    local root_unit=$3
+    local swap_size=$4
+    local swap_on_this_device=$5
+    local is_root_device=$6
+    
+    # Prompt for confirmation before destructive operation
+    _prompt_format_confirmation "$device" || return 1
+    
+    _info "Initializing partition table on $device..."
+    
+    # Create a new GPT partition table
+    _echo_run parted -s "$device" mklabel gpt || return 1
+    
+    local start="0%"
+    local end
+    
+    # Create EFI boot partition (1GB)
+    if [ "$is_root_device" = true ]; then
+        end="1GB"
+        _info "Creating EFI boot partition (1GB)..."
+        _echo_run parted -s -a optimal "$device" mkpart boot_efi fat32 "$start" "$end" || return 1
+        
+        start="1GB"
+        end="5GB"
+        _info "Creating boot partition (4GB)..."
+        _echo_run parted -s -a optimal "$device" mkpart boot ext4 "$start" "$end" || return 1
+        
+        start="5GB"
+    fi
+    
+    # Create swap partition (if on this device and as partition)
+    if [ "$swap_on_this_device" = true ] && [ "$SWAP_TYPE" = "partition" ]; then
+        end="$((5 + swap_size))GB"
+        _info "Creating swap partition (${swap_size}GB)..."
+        _echo_run parted -s -a optimal "$device" mkpart swap linux-swap "$start" "$end" || return 1
+        
+        start="$((5 + swap_size))GB"
+    fi
+    
+    # Create root or home partition
+    if [ "$is_root_device" = true ]; then
+        if [ "$root_unit" = "all" ]; then
+            end="100%"
+            _info "Creating root partition (all remaining space)..."
+        else
+            end="$((5 + (swap_on_this_device && [ "$SWAP_TYPE" = "partition" ] ? swap_size : 0) + root_size))${root_unit}"
+            _info "Creating root partition (${root_size}${root_unit})..."
+        fi
+        _echo_run parted -s -a optimal "$device" mkpart root linux "$start" "$end" || return 1
+    else
+        # Home device
+        if [ "$root_unit" = "all" ]; then
+            end="100%"
+            _info "Creating home partition (all remaining space)..."
+        else
+            end="${root_size}${root_unit}"
+            _info "Creating home partition (${root_size}${root_unit})..."
+        fi
+        _echo_run parted -s -a optimal "$device" mkpart home linux "$start" "$end" || return 1
+    fi
+    
+    _info "Partition table on $device created successfully"
+    return 0
+}
+
+_print_partition_summary() {
+    local device=$1
+    
+    _info "Current partition table for $device:"
+    parted -s "$device" print
+    
+    return 0
 }
 
 # ============================================================================
@@ -464,8 +573,36 @@ _setup_disk_configuration() {
     _print_configuration_summary
     _confirm_configuration || return 1
     
-    _info_long "Disk configuration phase completed successfully"
-    _log "INFO" "Configuration saved to: $LOGFILE"
+    _info_long "Proceeding with disk partitioning"
+    
+    # Partition root device
+    _info "Partitioning root device: $ROOT_DEVICE"
+    local swap_on_root=false
+    if [ "$SWAP_TYPE" = "partition" ] && [ "$ROOT_DEVICE" = "$HOME_DEVICE" ] || [ "$SWAP_TYPE" = "partition" ] && [ "$ROOT_DEVICE" = "$ROOT_DEVICE" ]; then
+        swap_on_root=true
+    fi
+    _setup_disk_partitions "$ROOT_DEVICE" "$ROOT_SIZE" "$ROOT_SIZE_UNIT" "$SWAP_SIZE" "$swap_on_root" true || {
+        _error "Failed to partition root device"
+        return 1
+    }
+    
+    # Partition home device if it's different from root
+    if [ "$HOME_DEVICE" != "$ROOT_DEVICE" ]; then
+        _info "Partitioning home device: $HOME_DEVICE"
+        _setup_disk_partitions "$HOME_DEVICE" "$HOME_SIZE" "$HOME_SIZE_UNIT" 0 false false || {
+            _error "Failed to partition home device"
+            return 1
+        }
+    fi
+    
+    # Display final partition tables
+    _print_partition_summary "$ROOT_DEVICE"
+    
+    if [ "$HOME_DEVICE" != "$ROOT_DEVICE" ]; then
+        _print_partition_summary "$HOME_DEVICE"
+    fi
+    
+    _info_long "Disk configuration and partitioning completed successfully"
     
     return 0
 }
@@ -488,25 +625,30 @@ main() {
         _warn "Internet connection not available. Some features may not work."
     fi
     
-    _setup_disk_configuration || {
+    _setup_disk_configuration
+    local exit_code=$?
+    
+    if [ $exit_code -eq 2 ]; then
+        _info "Installation cancelled by user. Exiting."
+        exit 0
+    elif [ $exit_code -ne 0 ]; then
         _error "Disk setup configuration failed. Exiting."
         exit 1
-    }
+    fi
     
     echo ""
     echo "=========================================="
     echo "Next Steps:"
     echo "=========================================="
-    echo "1. Review the configuration summary above"
-    echo "2. Once finalized, proceed with:"
-    echo "   - Partition creation (gdisk)"
+    echo "1. Verify the partition tables above"
+    echo "2. Next steps:"
     echo "   - Encryption setup (cryptsetup)"
     echo "   - Logical volume creation (lvm2)"
     echo "   - Filesystem creation and mounting"
     echo ""
     echo "For more details, see: instructions/install/arch-install.md"
     echo "=========================================="
-    
+
     exit 0
 }
 

@@ -49,3 +49,5 @@ image viewer -> gwenview?, kphotoalbum?
 #REMEMBER
 Replace amdvlk with extra/vulkan-radeon
 Replace lib32-amdvlk with multilib/lib32-vulkan-radeon
+Replace lib32-vulkan-mesa-device-select with multilib/lib32-vulkan-mesa-implicit-layers
+Replace vulkan-mesa-device-select with extra/vulkan-mesa-implicit-layers
