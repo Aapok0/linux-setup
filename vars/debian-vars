@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+
+apt_tools=(
+    "nala"
+    "apt-listbugs"
+    "apt-listchanges"
+    "apt-file"
+)
+
+basic_packages=(
+    "git"
+    "curl"
+    "wget"
+    "sed"
+    "gawk"
+    "grep"
+    "rsync"
+    "inetutils-tools"
+    "netcat-openbsd"
+    "dnsutils"
+    "openssh-client"
+    "p7zip-full"
+    "unzip"
+    "unrar"
+    "jq"
+    "stow"
+    "python3"
+    "python3-tk"
+    "npm"
+    "pnpm"
+    "fastfetch"
+    "htop"
+    "eza"
+    "bat"
+    "git-delta"
+    "zoxide"
+    "vim"
+    "neovim"
+    "tmux"
+    "fzf"
+    "fd-find"
+    "ripgrep"
+    "xclip"
+    "wl-clipboard"
+    "tldr"
+    "thefuck"
+    "entr"
+    "ffmpeg"
+    "imagemagick"
+    "poppler-utils"
+    "yazi"
+    "exfatprogs"
+)
+
+basic_packages_pip=(
+    "azure-cli"
+    "python3-pip"
+    "python3-pipx"
+    "protonup-qt"
+)
+
+apps=(
+    "kitty"
+    "firefox-esr"
+    "discord"
+    "thunderbird"
+    "mpv"
+    "vlc"
+    "qalculate-gtk"
+    "openrgb"
+    "virtualbox"
+    "virtualbox-guest-utils"
+    "qbittorrent"
+)
+
+apps_extra=(
+    "spotify-client"
+    "bitwarden"
+    "signal-desktop"
+    "onlyoffice-desktopeditors"
+)
+
+gaming_packages=(
+    "steam"
+    "lutris"
+    "wine"
+    "wine32"
+    "wine-development"
+    "winetricks"
+    "mangohud"
+    "gamemode"
+    "joystick"
+)
+
+gaming_packages_extra=(
+    "protontricks"
+    "steamtinkerlaunch"
+)
+
+kde_packages=(
+    "kde-full"
+    "kscreen"
+    "kcron"
+    "ark"
+    "plasma-nm"
+    "plasma-pa"
+    "power-profiles-daemon"
+    "bluedevil"
+    "ibus"
+    "dolphin"
+    "kdegraphics-thumbnailers"
+    "ffmpegthumbs"
+    "flatpak"
+    "discover"
+    "spectacle"
+)
+
+kde_packages_extra=()

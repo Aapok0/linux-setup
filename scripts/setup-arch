@@ -3,8 +3,8 @@
 set -o pipefail
 
 source vars/arch-vars
-username=$1
-setup_ufw=true
+USERNAME=$1
+SETUP_UFW=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 exec 1> >(tee -a "$LOGFILE") 2>&1
@@ -56,7 +56,7 @@ _set_ssh_remote() {
 
 _check_firewall_service() {
     command -v "$2" &> /dev/null && systemctl is-active --quiet "$1" && {
-        setup_ufw=false
+        SETUP_UFW=false
         _log "INFO" "Service $1 already installed/enabled. Check rules manually."; sleep 6
     }
 }
@@ -150,7 +150,7 @@ main() {
     _check_firewall_service "ufw" "ufw"
     _check_firewall_service "nftables" "nft"
     _check_firewall_service "firewalld" "firewalld-cmd"
-    if $setup_ufw; then
+    if $SETUP_UFW; then
         _info "No existing firewall service running."
         _info_long "Installing ufw and setting up firewall..."
         _install_pkg "ufw" "--skipreview --noconfirm"
@@ -201,12 +201,12 @@ main() {
 
     _config_setup "zsh"
     _info "Switching shell to ZSH..."
-    change_shell="$(chsh -s $(which zsh) $username)"
+    change_shell="$(chsh -s $(which zsh) $USERNAME)"
     if echo $change_shell | grep -q "Shell changed."; then
-        _info "Switched user $username's shell to ZSH."
+        _info "Switched user $USERNAME's shell to ZSH."
     else
         echo $change_shell
-        _error "Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."
+        _error "Failed to switch $USERNAME's shell to ZSH. The user's shell most likely already is ZSH."
     fi
 
     _info "Setting up gitconfig configuration..."
@@ -246,7 +246,7 @@ main() {
     fi
     _info "Creating nordvpn group and adding user"
     _echo_run sudo groupadd -r nordvpn
-    _echo_run sudo gpasswd -a $username nordvpn
+    _echo_run sudo gpasswd -a $USERNAME nordvpn
     _info "Enabling and starting openvpn"
     _echo_run sudo systemctl enable --now nordvpnd.service
 
