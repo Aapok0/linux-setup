@@ -1,0 +1,496 @@
+Arch manual install:
+loadkeys fi
+connect to ethernet/wi-fi
+  - ethernet (should just work, if ethernet cable is connected?): check mmcli
+    ip link
+    etc. -> check steps, if needed..
+  - wi-fi
+    iwctl device list / ip a
+    (iwctl device wlan0 set-property Powered on)
+    (iwctl station wlan0 scan)
+    iwstl station wlan0 get-networks
+    iwctl station wlan0 connect <your_SSID>
+timedatectl
+
+#OLD WAY I USED
+fdisk -l / lsblk
+fdisk /dev/<device_name>
+p=show partition table, g=empty the partition table, n=create new partition, t=set type for partition, w=write partitions
+p
+g
+/boot/efi
+n -> default -> default -> +1G
+- If it asks to remove signature, the partition already has a linux installation. Say yes, if you want to remove and continue with installation.
+/boot
+n -> default -> default -> +<1-4>G
+# Make swap here or with LVM
+/swap (non-hibernate)
+n -> default -> default -> +<root of RAM>G
+t -> 3 -> 19
+/swap (hibernate)
+n -> default -> default -> +<RAM + root of RAM>G
+t -> 3 -> 19
+/
+n -> default -> default -> +<32-100>G
+t -> 4 -> 44
+/home
+n -> default -> default -> default
+t -> 5 -> 44
+p
+w
+
+#CURRENT WAY
+OR gdisk
+lsblk
+gdisk /dev/<device_name>
+p=show partition table, o=empty the partition table, n=create new partition, t=set type for partition, w=write partitions
+/boot/efi
+n -> default -> default -> +1G -> ef00
+/boot
+n -> default -> default -> +<1-4>G -> ef02
+
+# Make swap here or with LVM
+/swap (non-hibernate)
+n -> default -> default -> +<root of RAM>G -> 8200
+/swap (hibernate)
+n -> default -> default -> +<RAM + root of RAM>G -> 8200
+
+/
+n -> default -> default -> +<32-100>G -> 8309
+/home
+n -> default -> default -> default -> 8302
+p
+w
+
+modprobe dm-crypt
+modprobe dm-mod
+cryptsetup luksFormat -v -s 512 -h sha512 --type luks2 /dev/<root_partition>
+cryptsetup open /dev/<root_partition> luks_root
+cryptsetup luksFormat -v -s 512 -h sha512 --type luks2 /dev/<home_partition>
+cryptsetup open /dev/<home_partition> luks_home
+
+pvcreate /dev/mapper/luks_root
+vgcreate arch /dev/mapper/luks_root
+# Swap without hibernate
+lvcreate -n swap -L +<root of RAM>G -C y arch
+# Swap with hibernate
+lvcreate -n swap -L +<RAM + root of RAM>G -C y arch
+# Add percentage of leftover space to root
+lvcreate -n root -l +100%FREE arch
+# Add certain amount to root
+lvcreate -n root -L 600G arch
+
+pvcreate /dev/mapper/luks_home
+vgcreate arch_home /dev/mapper/luks_home
+# Add percentage of leftover space to root
+lvcreate -n home -l +100%FREE arch_home
+# Add certain amount to root
+lvcreate -n home -L 3T arch_home
+
+vgscan
+vgchange -ay
+
+mkfs.fat -F 32 /dev/<EFI_partition>
+mkfs.ext4 /dev/<boot_partition>
+mkswap /dev/<swap_partition>
+# or
+mkswap /dev/mapper/arch-swap
+mkfs.btrfs -L root /dev/mapper/arch-root
+mkfs.btrfs -L home /dev/mapper/arch_home-home
+
+mount /dev/mapper/arch-root /mnt
+cd /mnt
+btrfs subvol create @
+btrfs subvol create @snapshots
+btrfs subvol create @var_log
+btrfs subvol create @var_cache
+
+mount --mkdir /dev/mapper/arch_home-home /mnt/home
+cd /mnt/home
+btrfs subvol create @home
+btrfs subvol create @snapshots
+btrfs subvol create @games
+
+cd
+umount -R /mnt
+
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@ /dev/mapper/arch-root /mnt
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@snapshots /dev/mapper/arch-root /mnt/.snapshots
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_log /dev/mapper/arch-root /mnt/var/log
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_cache /dev/mapper/arch-root /mnt/var/cache
+mount --mkdir /dev/<boot_partition> /mnt/boot
+mount --mkdir /dev/<EFI_partition> /mnt/boot/efi
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home /dev/mapper/arch_home-home /mnt/home
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home/@snapshots /dev/mapper/arch_home-home /mnt/home/.snapshots
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home/@games /dev/mapper/arch_home-home /mnt/home/<planned_username>/Games
+swapon /dev/<swap_partition>
+# or
+swapon /dev/mapper/arch-swap
+
+reflector -c Finland -a 12 --protocol https --sort rate --download-timeout 60 --save /etc/pacman.d/mirrorlist
+
+pacstrap -Ki /mnt base base-devel
+
+genfstab -U /mnt >> /mnt/etc/fstab
+vim /mnt/etc/fstab
+# Change root and home to subvolid
+
+arch-chroot /mnt
+
+pacman -S neovim
+
+nvim /etc/pacman.conf
+ParallelDownloads = 8
+
+nvim /etc/mkinitcpio.conf
+MODULES=(btrfs)
+HOOKS=(base udev autodetect modconf kms keyboard keymap consolefont block encrypt lvm2 filesystems resume fsck)
+
+pacman -S linux linux-headers linux-lts linux-lts-headers linux-firmware sof-firmware
+
+pacman -S dosfstools lvm2 sudo cryptsetup btrfs-progs vim man-db man-pages texinfo git xdg-user-dirs
+
+pacman -S grub efibootmgr
+grub-install --efi-directory=/boot/efi
+
+nvim /etc/default/grub
+# Add cryptdevice if using encryption
+GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 quiet root==UUID=<root_lv_uuid> cryptdevice=UUID=<root_partition_uuid>:luks_root"
+# Get UUID with
+blkid /dev/<root_partition>
+blkid /dev/mapper/arch-root
+
+# KEYS FOR ENCRYPTION
+mdkir /etc/luks_keys
+dd if=/dev/random of=/etc/luks_keys/root_keyfile.bin bs=512 count=8
+dd if=/dev/random of=/etc/luks_keys/home_keyfile.bin bs=512 count=8
+chmod 700 /etc/luks_keys
+chmod 000 /etc/luks_keys/*
+chmod 600 /boot/initramfs-linux*
+cryptsetup luksAddKey /dev/<root_partition> /etc/luks_keys/root_keyfile.bin
+cryptsetup luksAddKey /dev/<home_partition> /etc/luks_keys/home_keyfile.bin
+nvim /etc/mkinitcpio.conf
+FILES(/etc/luks_keys/root_keyfile.bin)
+nvim /etc/crypttab
+luks_home	UUID=<home_partition_uuid>	/etc/luks_keys/home_keyfile.bin		luks,initramfs
+# Get UUID with
+blkid /dev/<home_partition>
+
+mkinitcpio -p linux
+mkinitcpio -p linux-lts
+
+grub-mkconfig -o /boot/grub/grub.cfg
+grub-mkconfig -o /boot/efi/EFI/arch/grub.cfg
+
+ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
+hwclock --systohc
+nvim /etc/systemd/timesyncd.conf
+NTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.org
+FallbackNTP=0.pool.ntp.org 1.pool.ntp.org
+systemctl enable systemd-timesyncd.service
+timedatectl set-ntp true
+
+nvim /etc/locale.gen
+-> uncomment locales you want:
+-> en_US.UTF-8 UTF-8
+-> fi_FI.UTF-8 UTF-8
+locale-gen
+vim /etc/locale.conf
+LANG=en_US.UTF-8
+LANGUAGE=en_US.UTF-8
+LC_CTYPE=en_US.UTF-8
+LC_NUMERIC=fi_FI.UTF-8
+LC_TIME=fi_FI.UTF-8
+LC_COLLATE=en_US.UTF-8
+LC_MONETARY=fi_FI.UTF-8
+LC_MESSAGES=en_US.UTF-8
+LC_PAPER=fi_FI.UTF-8
+LC_NAME=fi_FI.UTF-8
+LC_ADDRESS=fi_FI.UTF-8
+LC_TELEPHONE=fi_FI.UTF-8
+LC_MEASUREMENT=fi_FI.UTF-8
+LC_IDENTIFICATION=fi_FI.UTF-8
+LC_ALL=
+
+cp /usr/share/locale/en@quot/LC_MESSAGES/grub.mo /boot/grub/locale/en.mo
+
+# localectl --no-convert set-keymap fi
+# localectl --no-convert set-x11-keymap fi pc106 winkeys
+# Instead do following
+vim /etc/vconsole.conf
+KEYMAP=fi
+XKBLAYOUT=fi
+XKBMODEL=pc106
+XKBVARIANT=winkeys
+
+nvim /etc/hostname
+<chosen_hostname>
+
+passwd
+umount /home/<username>/Games
+rm -rf home/<username>
+useradd -m -G wheel -s /bin/bash <username>
+passwd <username>
+EDITOR=nvim visudo
+Uncomment wheel group in the bottom (with or without password)
+mount /home/<username>/Games
+chown <username>:<username> /home/<username>/Games
+
+pacman -S networkmanager bluez bluez-utils reflector
+vim /etc/xdg/reflector/reflector.conf
+systemctl enable NetworkManager
+systemctl enable bluetooth
+systemctl enable reflector.timer
+systemctl enable fstrim.timer
+
+lscpu
+AMD:
+pacman -S amd-ucode
+Intel:
+pacman -S intel-ucode
+
+lspci
+AMD:
+pacman -S mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon
+Intel broadwell or newer:
+pacman -S mesa lib32-mesa intel-media-driver
+Nvidia:
+pacman -S nvidia nvidia-utils nvidia-lts
+VMWare:
+pacman -S xf86-video-vmware
+
+pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron ibus sddm kitty
+
+systemctl enable sddm
+
+grub-mkconfig -o /boot/grub/grub.cfg
+grub-mkconfig -o /boot/efi/EFI/arch/grub.cfg
+
+mkinitcpio -p linux
+mkinitcpio -p linux-lts
+
+exit
+umount -R /mnt
+reboot now
+
+# Might need to write decrypt passphrase with US keyboard layout and set Finnish keyboard again...
+localectl --no-convert set-keymap fi
+localectl --no-convert set-x11-keymap fi pc106 winkeys
+mkinitcpio -p linux
+mkinitcpio -p linux-lts
+	
+After install:
+pacman -Syu
+
+sudo pacman -S grub-btrfs inotify-tools snapper
+/etc/updatedb.conf
+PRUNENAMES = ".snapshots"
+sudo umount /.snapshots /home/.snapshots
+sudo rm -r /.snapshots /home/.snapshots
+sudo snapper -c root create-config /
+sudo nvim /etc/snapper/configs/root
+# Set to liking
+sudo snapper -c home create-config /home
+sudo nvim /etc/snapper/configs/home
+# Set to liking (at least change subvolume)
+sudo btrfs subvol delete /.snapshots
+sudo btrfs subvol delete /home/.snapshots
+sudo mount /.snapshots /home/.snapshots
+sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
+sudo systemctl edit --full grub-btrfsd
+ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
+sudo systemctl enable --now grub-btrfsd
+
+https://github.com/Aapok0/linux-setup
+
+paru -S snap-pac
+
+
+
+Distro hop / reinstall
+# Move following files to /home/<user>/install for convenience (otherwise need modify them again)
+/etc/pacman.conf
+/etc/default/grub
+/etc/mkinitcpio.conf
+/etc/crypttab
+/etc/systemd/timesyncd.conf
+/etc/locale.conf
+/etc/vconsole.conf
+/etc/xdg/reflector/reflector.conf
+/etc/snapper/configs
+
+# MOVE KEYFILES TO /home/<user>/install
+/etc/luks_keys/root_keyfile.bin
+/etc/luks_keys/home_keyfile.bin
+
+# Maybe move these, if needed, to /home/<user>/install
+/etc/hosts
+/etc/hostname
+what else?
+
+cryptsetup open /dev/<root_partition> luks_root
+cryptsetup open /dev/<home_partition> luks_home
+
+# Format root partition
+mkfs.btrfs -fL root /dev/mapper/arch-root
+
+mount /dev/mapper/arch-root /mnt
+cd /mnt
+btrfs subvol create @
+btrfs subvol create @snapshots
+btrfs subvol create @var_log
+btrfs subvol create @var_cache
+
+mount --mkdir /dev/mapper/arch_home-home /mnt/home
+
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@ /dev/mapper/arch-root /mnt
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@snapshots /dev/mapper/arch-root /mnt/.snapshots
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_log /dev/mapper/arch-root /mnt/var/log
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_cache /dev/mapper/arch-root /mnt/var/cache
+mount --mkdir /dev/<boot_partition> /mnt/boot
+mount --mkdir /dev/<EFI_partition> /mnt/boot/efi
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home /dev/mapper/arch_home-home /mnt/home
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home/@snapshots /dev/mapper/arch_home-home /mnt/home/.snapshots
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home/@games /dev/mapper/arch_home-home /mnt/home/<username>/Games
+swapon /dev/<swap_partition>
+# or
+swapon /dev/mapper/arch-swap
+
+reflector -c Finland -a 12 --protocol https --sort rate --download-timeout 60 --save /etc/pacman.d/mirrorlist
+
+pacstrap -Ki /mnt base base-devel
+
+genfstab -U /mnt >> /mnt/etc/fstab
+vim /mnt/etc/fstab
+# Change root and home to subvolid
+
+arch-chroot /mnt
+
+pacman -S neovim
+
+mv /etc/pacman.conf /etc/pacman.conf.bak
+cp /home/<user>/install/etc/pacman.conf /etc/
+nvim /etc/pacman.conf
+ParallelDownloads = 8
+
+cp /home/<user>/install/etc/mkinitcpio.conf /etc/mkinitcpio.conf
+# Make sure everything looks good
+cp -r /home/<user>/install/etc/luks_keys /etc/
+
+pacman -S linux linux-headers linux-lts linux-lts-headers linux-firmware sof-firmware
+
+pacman -S dosfstools lvm2 sudo cryptsetup btrfs-progs vim man-db man-pages texinfo git xdg-user-dirs
+
+pacman -S grub efibootmgr
+grub-install --efi-directory=/boot/efi
+mv /etc/default/grub /etc/default/grub.bak
+cp /home/<user>/install/etc/default/grub /etc/default/
+# Make sure everything looks good
+mv /etc/crypttab /etc/crypttab.bak
+cp /home/<user>/install/etc/crypttab /etc/
+# Make sure everything looks good
+
+mkinitcpio -p linux
+mkinitcpio -p linux-lts
+
+grub-mkconfig -o /boot/grub/grub.cfg
+grub-mkconfig -o /boot/efi/EFI/arch/grub.cfg
+
+ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
+hwclock --systohc
+mv /etc/systemd/timesyncd.conf /etc/systemd/timesyncd.conf.bak
+cp /home/<user>/install/etc/systemd/timesyncd.conf /etc/systemd/
+# Make sure everything looks good
+systemctl enable systemd-timesyncd.service
+timedatectl set-ntp true
+
+nvim /etc/locale.gen
+-> uncomment locales you want:
+-> en_US.UTF-8 UTF-8
+-> fi_FI.UTF-8 UTF-8
+locale-gen
+cp /home/<user>/install/etc/locale.conf /etc/
+
+cp /usr/share/locale/en@quot/LC_MESSAGES/grub.mo /boot/grub/locale/en.mo
+
+cp /home/<user>/install/etc/vconsole.conf /etc/
+
+nvim /etc/hostname
+<chosen_hostname>
+# or
+cp /home/<user>/install/etc/hostname /etc/
+cp /home/<user>/install/etc/hosts /etc/
+
+passwd
+useradd -G wheel -s /bin/bash <username>
+passwd <username>
+EDITOR=nvim visudo
+Uncomment wheel group in the bottom (with or without password)
+
+pacman -S networkmanager bluez bluez-utils reflector
+cp /home/<user>/install/etc/xdg/reflector/reflector.conf /etc/
+systemctl enable NetworkManager
+systemctl enable bluetooth
+systemctl enable reflector.timer
+systemctl enable fstrim.timer
+
+lscpu
+AMD:
+pacman -S amd-ucode
+Intel:
+pacman -S intel-ucode
+
+lspci
+AMD:
+pacman -S mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon
+Intel broadwell or newer:
+pacman -S mesa lib32-mesa intel-media-driver
+Nvidia:
+pacman -S nvidia nvidia-utils nvidia-lts
+VMWare:
+pacman -S xf86-video-vmware
+
+pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron ibus sddm kitty
+systemctl enable sddm
+
+grub-mkconfig -o /boot/grub/grub.cfg
+grub-mkconfig -o /boot/efi/EFI/arch/grub.cfg
+
+mkinitcpio -p linux
+mkinitcpio -p linux-lts
+
+exit
+umount -R /mnt
+reboot now
+
+# Might need to write decrypt passphrase with US keyboard layout and set Finnish keyboard again...
+localectl --no-convert set-keymap fi
+localectl --no-convert set-x11-keymap fi pc106 winkeys
+mkinitcpio -p linux
+mkinitcpio -p linux-lts
+
+After install:
+pacman -Syu
+
+sudo pacman -S grub-btrfs inotify-tools snapper
+/etc/updatedb.conf
+PRUNENAMES = ".snapshots"
+sudo umount /.snapshots /home/.snapshots
+sudo rm -r /.snapshots /home/.snapshots
+sudo snapper -c root create-config /
+sudo nvim /etc/snapper/configs/root
+# Set to liking
+sudo snapper -c home create-config /home
+sudo nvim /etc/snapper/configs/home
+# Set to liking (at least change subvolume)
+sudo btrfs subvol delete /.snapshots
+sudo btrfs subvol delete /home/.snapshots
+sudo mount /.snapshots /home/.snapshots
+sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
+sudo systemctl edit --full grub-btrfsd
+ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
+sudo systemctl enable --now grub-btrfsd
+
+https://github.com/Aapok0/linux-setup
+
+paru -S snap-pac

@@ -59,6 +59,7 @@ main() {
         echo "6. Open tmux (tmux) and install plugins (ctrl+space I)"
         echo "7. Open neovim (nvim) to install plugins"
         echo "8. Remove old backup directories in ~/.config if satisfied"
+        exit 0
     else
         _log "ERROR" "Setup interrupted by unexpected error"
         exit 1
