@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 
+# NOTE: The following packages are handled by justfile recipes (justfile install) in the dotfiles repository:
+# Core tools: git, curl, stow, vim, neovim, tmux, zsh, fzf, fd, ripgrep, xclip, wl-clipboard
+# Development: nodejs, npm, python, build tools, cmake
+# CLI tools: eza, bat, git-delta, zoxide, starship, ripgrep, fd, fzf, btop, entr, jq, thefuck, tldr
+# Utilities: ffmpeg, p7zip, poppler, imagemagick
+# DevOps: terraform, ansible, kubectl, helm
+# Shell: zsh-plugins, atuin history import, shell switching
+# Applications: lazygit, yazi, atuin
+# Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
+# See: https://github.com/Aapok0/dotfiles
+#
+# Packages kept here are those needed BEFORE running justfile or not included in justfile
+
 basic_packages=(
-    "git"
-    "curl"
+    "git"           # Required to clone dotfiles before running justfile
+    "curl"          # Needed for various installations
     "wget"
     "sed"
     "awk"
@@ -12,36 +25,12 @@ basic_packages=(
     "openbsd-netcat"
     "bind"
     "openssh"
-    "7zip"
     "unzip"
     "unrar"
-    "jq"
-    "stow"
-    "python"
     "pyenv"
     "tk" # pyenv dependency
     "pnpm"
     "fastfetch"
-    "htop"
-    "eza"
-    "bat"
-    "git-delta"
-    "zoxide"
-    "vim"
-    "neovim"
-    "tmux"
-    "fzf"
-    "fd"
-    "ripgrep"
-    "xclip"
-    "wl-clipboard"
-    "tldr"
-    "thefuck"
-    "entr"
-    "ffmpeg"
-    "imagemagick"
-    "poppler"
-    "yazi"
     "exfat-utils"
 )
 
@@ -115,36 +104,3 @@ kde_packages=(
 )
 
 kde_packages_aur=()
-
-i3_packages=(
-    "i3-wm"
-    "i3blocks"
-    "gtk2"
-    "gtk3"
-    "gtk4"
-    "gnome-themes-extra"
-    "arandr"
-    "dex"
-    "feh"
-    "picom"
-    "dunst"
-    "rofi"
-    "playerctl"
-    "scrot"
-    "polkit-gnome"
-    "blueberry"
-)
-
-i3_packages_aur=(
-    "autotiling"
-    "xorg-xset"
-    "xorg-xrandr"
-    "rofi-greenclip"
-    #"bitwarden-rofi" #Install doesn't work yet. Needs specific node, which creates conflict.
-    "alsa-utils" # amixer
-    "network-manager-applet"
-    "catppuccin-gtk-theme-mocha"
-    "qogir-gtk-theme"
-    "qogir-icon-theme"
-    "otf-firamono-nerd"
-)

@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 
+# NOTE: The following packages are handled by justfile recipes (justfile install) in the dotfiles repository:
+# Core tools: git, curl, stow, vim, neovim, tmux, zsh, fzf, fd-find, ripgrep, xclip, wl-clipboard
+# Development: nodejs, npm, python3, build-essential, cmake
+# CLI tools: eza, bat, git-delta, zoxide, starship, btop, entr, jq, thefuck, tldr
+# Utilities: ffmpeg, p7zip-full, poppler-utils, imagemagick
+# DevOps: terraform, ansible, kubectl, helm
+# Shell: zsh-plugins, atuin history import, shell switching
+# Applications: lazygit, yazi, atuin
+# Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
+# See: https://github.com/Aapok0/dotfiles
+#
+# Packages kept here are those needed BEFORE running justfile or not included in justfile
+
 apt_tools=(
     "nala"
     "apt-listbugs"
@@ -8,8 +21,8 @@ apt_tools=(
 )
 
 basic_packages=(
-    "git"
-    "curl"
+    "git"           # Required to clone dotfiles before running justfile
+    "curl"          # Needed for various installations
     "wget"
     "sed"
     "gawk"
@@ -19,36 +32,11 @@ basic_packages=(
     "netcat-openbsd"
     "dnsutils"
     "openssh-client"
-    "p7zip-full"
     "unzip"
     "unrar"
-    "jq"
-    "stow"
-    "python3"
     "python3-tk"
-    "npm"
     "pnpm"
     "fastfetch"
-    "htop"
-    "eza"
-    "bat"
-    "git-delta"
-    "zoxide"
-    "vim"
-    "neovim"
-    "tmux"
-    "fzf"
-    "fd-find"
-    "ripgrep"
-    "xclip"
-    "wl-clipboard"
-    "tldr"
-    "thefuck"
-    "entr"
-    "ffmpeg"
-    "imagemagick"
-    "poppler-utils"
-    "yazi"
     "exfatprogs"
 )
 

@@ -61,39 +61,35 @@ _check_firewall_service() {
     }
 }
 
-_clone_if_missing() {
-    [ -d "$2" ] && {
-        _info "$1 already installed"
+_setup_git_config() {
+    local config_dir="$HOME/.config/git"
+    local config_file="$config_dir/config.local"
+    
+    [ -d "$config_dir" ] || _echo_run mkdir -p "$config_dir"
+    
+    if [ -f "$config_file" ]; then
+        _info "Git config already exists at $config_file"
         return 0
-    }
-    _info "Installing $1"
-    _echo_run git clone "$3" "$2"
-}
-
-_backup_file() {
-    [ -f "$1" ] || return 0
-    [ -f "$1.bak" ] && {
-        read -p "Backup of $1 exists. Remove and create new? [y/N]" -n 1 -r
-        [[ $REPLY =~ ^[Yy]$ ]] && _echo_run rm -rf "$1.bak"
-    } && _echo_run mv "$1" "$1.bak"
-}
-
-_backup_dir() {
-    [ -d "$1" ] || return 0
-    [ -d "$1.bak" ] && {
-        read -p "Backup of $1 exists. Remove and create new? [y/N]" -n 1 -r
-        [[ $REPLY =~ ^[Yy]$ ]] && _echo_run rm -rf "$1.bak"
-    }
-    _echo_run mv "$1" "$1.bak"
-    _info "Backed up to $1.bak"
-}
-
-_config_setup() {
-    echo -e "\n[SETUP_INFO] : Setting up $1 configuration..."
-    sleep 2
-    _backup_dir "$HOME/.config/$1"
-    _info_long "Linking $1 to ~/.config"
-    _echo_run stow -vRt "$HOME" "$1"
+    fi
+    
+    _info "Enter your Git user name or real name (or press Enter to skip):"
+    read -p "  → " git_name
+    
+    if [ -z "$git_name" ]; then
+        _warn "Skipped git config setup"
+        return 0
+    fi
+    
+    _info "Enter your Git email:"
+    read -p "  → " git_email
+    
+    _echo_run mkdir -p "$config_dir"
+    cat > "$config_file" << EOF
+[user]
+    name = $git_name
+    email = $git_email
+EOF
+    _info "Git user config created at $config_file"
 }
 
 _pkg_is_installed() {
@@ -171,66 +167,22 @@ main() {
         _set_ssh_remote "$HOME/Workspace/dotfiles"
     }
 
-    _info_long "Moving to dotfiles directory for stow..."
+    _info_long "Moving to dotfiles directory..."
     _echo_run cd "$HOME/Workspace/dotfiles"
 
-    _info_long "Installing terminal emulator ZSH..."
-    _install_pkg "zsh" "--skipreview --noconfirm"
-    _info_long "Installing ZSH plugins, themes, and font..."
-    _clone_if_missing "Fast Syntax Highlighting" \
-        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" \
-        "https://github.com/zdharma-continuum/fast-syntax-highlighting.git"
-    _clone_if_missing "ZSH Autosuggestions" \
-        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions" \
-        "https://github.com/zsh-users/zsh-autosuggestions.git"
-    _clone_if_missing "ZSH Completions" \
-        "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions" \
-        "https://github.com/zsh-users/zsh-completions.git"
-    _install_pkg "starship" "--skipreview --noconfirm"
-    _clone_if_missing "fzf-git" \
-        "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" \
-        "https://github.com/junegunn/fzf-git.sh.git"
+    _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell)..."
+    _echo_run just install
+
+    _info_long "Installing terminal emulator font..."
     _install_pkg "ttf-meslo-nerd-font-powerlevel10k" "--skipreview --noconfirm"
 
-    _info "Setting up Starship prompt theme configuration..."
-    _backup_file "$HOME/.config/starship.toml"
-    _info_long "Linking starship.toml to ~/.config"
-    _echo_run stow -vRt "$HOME" starship
-
+    _info_long "Installing additional packages from vars..."
     _install_packages "basic packages" "${basic_packages[@]}" "${basic_packages_aur[@]}"
 
-    _config_setup "zsh"
-    _info "Switching shell to ZSH..."
-    change_shell="$(chsh -s $(which zsh) $USERNAME)"
-    if echo $change_shell | grep -q "Shell changed."; then
-        _info "Switched user $USERNAME's shell to ZSH."
-    else
-        echo $change_shell
-        _error "Failed to switch $USERNAME's shell to ZSH. The user's shell most likely already is ZSH."
-    fi
+    _info "Setting up git user configuration..."
+    _setup_git_config
 
-    _info "Setting up gitconfig configuration..."
-    _backup_file "$HOME/.gitconfig"
-    _info_long "Linking .gitconfig to ~/"
-    _echo_run stow -vRt "$HOME" gitconfig
-
-    _config_setup "bat"
-    _info "Building bat cache to add Catppuccin Mocha theme..."
-    _echo_run bat cache --build
-
-    _config_setup "kitty"
-    _echo_run sed -i "s/^hide_window_decorations.*/hide_window_decorations no/" "$HOME/.config/kitty/kitty.conf"
-
-    _config_setup "nvim"
-
-    _config_setup "tmux"
-    _info "Installing tmux plugin manager..."
-    [ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ] || {
-        _echo_run git clone https://github.com/tmux-plugins/tpm "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm"
-    }
-    _info_long "Linking tmux tools to /usr/local/bin..."
-    _echo_run sudo stow -vRt / tmux-tools
-
+    _info_long "Installing KDE and additional apps..."
     _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
     _install_packages "apps" "${apps[@]}" "${apps_aur[@]}"
     _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_aur[@]}"

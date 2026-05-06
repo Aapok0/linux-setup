@@ -44,7 +44,7 @@ main() {
         echo "SETUP FINISHED"
         echo "Post-setup tasks:"
         echo "1. Reboot the machine"
-        echo "2. Run kitty (mod+enter in i3)"
+        echo "2. Run ghostty"
         echo "3. Check firewall rules if one was already installed"
         echo "4. Install nvm and node:"
         echo "   - Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating"
@@ -56,9 +56,11 @@ main() {
         echo "   - pyenv global <version>"
         echo "   - mkdir -p ~/Python && cd ~/Python"
         echo "   - python -m venv <name>"
-        echo "6. Open tmux (tmux) and install plugins (ctrl+space I)"
-        echo "7. Open neovim (nvim) to install plugins"
-        echo "8. Remove old backup directories in ~/.config if satisfied"
+        echo "6. Open nvim and install plugins:"
+        echo "   - nvim"
+        echo "   - Let lazy.nvim install plugins"
+        echo "   - :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint"
+        echo "7. Open tmux (tmux) and install plugins (ctrl+space I)"
         exit 0
     else
         _log "ERROR" "Setup interrupted by unexpected error"
