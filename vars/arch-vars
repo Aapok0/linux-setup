@@ -8,6 +8,7 @@
 # DevOps: terraform, ansible, kubectl, helm
 # Shell: zsh-plugins, atuin history import, shell switching
 # Applications: lazygit, yazi, atuin
+# Font: ttf-jetbrains-mono-nerd (JetBrainsMono Nerd Font)
 # Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
 # See: https://github.com/Aapok0/dotfiles
 #

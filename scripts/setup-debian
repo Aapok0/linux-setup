@@ -165,7 +165,7 @@ main() {
     _info_long "Moving to dotfiles directory..."
     _echo_run cd "$HOME/Workspace/dotfiles"
 
-    _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell)..."
+    _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
     _echo_run just install
 
     _info_long "Installing additional packages from vars..."

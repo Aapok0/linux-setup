@@ -1,109 +1,123 @@
-# Linux setup
+# Linux Setup
 
-Script to setup my preferred environment to a arch or debian based distribution.
+Scripts to set up my preferred environment on Arch or Debian based distributions.
 
-## Pre setup
+## What it does
 
-I like to add my user to sudoers with option to not ask password for sudo. You can edit sudoers safely with:
+The setup script detects (or accepts as argument) whether the system is Arch or Debian based, then:
+
+1. Updates system packages
+2. Checks for existing firewalls and installs/enables `ufw` if none found
+3. Creates `~/Workspace` and clones [dotfiles](https://github.com/Aapok0/dotfiles) (converted to SSH remote)
+4. Runs dotfiles `justfile` (`just install`) which handles core tools, shell setup (ZSH, plugins, starship), font installation, stowing configs, and more
+5. Installs additional packages not covered by the justfile (see `vars/`)
+6. Prompts for git user configuration (`~/.config/git/config.local`)
+7. Installs KDE Plasma packages, apps, and gaming packages
+8. Sets up NordVPN with systemd-resolved
+9. Registers Steam Tinker Launch as a Steam compatibility tool
+
+**Arch-specific:** Enables multilib, installs `paru` (AUR helper).
+
+**Debian-specific:** Installs `nala` and apt tools, installs `pyenv`/`nvm`/`tfswitch` manually (no AUR), adds NordVPN repo.
+
+Output is logged to `logs/<timestamp>_setup.log`.
+
+## Repository structure
+
+```
+├── setup                       # Entry point — detects distro and dispatches
+├── scripts/
+│   ├── setup-arch              # Full Arch (KDE) setup
+│   ├── setup-debian            # Full Debian (KDE) setup
+│   ├── setup-arch-i3           # Older i3-based Arch setup (unused)
+│   └── install-arch            # Arch Linux installation script (partitioning, etc.)
+├── vars/
+│   ├── arch-vars               # Package lists for Arch (pacman & paru/AUR)
+│   └── debian-vars             # Package lists for Debian (apt & extras)
+├── instructions/
+│   ├── install/                # Arch install & reinstall guides
+│   └── post-install/           # App-specific settings & configuration notes
+├── apps.md                     # App decision log (done / not done / to investigate)
+└── logs/                       # Created at runtime (gitignored)
+```
+
+## Prerequisites
+
+- A working internet connection
+- `git` available to clone this repo and dotfiles
+- **Arch:** `base-devel` installed (needed to build `paru`)
+- **Debian:** `sudo` and `apt` working
+
+## Pre-setup
+
+Optional: allow passwordless sudo by editing sudoers safely:
 
 ```bash
 sudo visudo
-```
-
-If it opens to nano, you can open it with vim the following way:
-
-```bash
+# or with vim:
 sudo VISUAL=vim visudo
 ```
 
-Add the following to the end of the file:
+Add to the end of the file:
 
-```bash
+```
 your_username ALL=(ALL:ALL) NOPASSWD: ALL
 ```
 
-## Setup
+## Usage
 
-1. Clone this repo.
+1. Clone this repo and enter the directory.
 
-2. Make sure the script files are executable. Check with `ls -l`. If they're not, add executable rights with:
+2. Make scripts executable:
 
 ```bash
-chmod u+x filename
+chmod u+x setup scripts/*
 ```
 
-3. Run the main script with:
+3. Run:
 
 ```bash
 ./setup
+# or explicitly:
+./setup arch
+./setup debian
 ```
 
-## Post setup
+The script auto-detects the distro from `/etc/os-release`. Pass `arch` or `debian` manually if detection fails.
+
+## Post-setup
+
+These steps are also printed by the script on completion:
 
 1. Reboot the machine.
+2. Open Ghostty (terminal emulator).
+3. If a firewall was already installed, check its rules.
+4. Install nvm and Node.js:
+   ```bash
+   # Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating
+   exec zsh
+   nvm install node
+   ```
+5. Set up Python with pyenv:
+   ```bash
+   pyenv install -l | less
+   pyenv install <version>
+   pyenv global <version>
+   mkdir -p ~/Python && cd ~/Python
+   python -m venv <name>
+   ```
+6. Open Neovim and install Mason tools:
+   ```bash
+   nvim
+   # Let lazy.nvim install plugins, then run:
+   # :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
+   ```
+7. Open tmux and install plugins: `tmux` then `ctrl+space I`.
 
-2. Run kitty with `mod+enter`.
+## Unfinished / TODO
 
-3. Run the command/app `arandr`, set your screen/s and resolution correctly and save the file as `monitor.sh`.
-
-4. If a firewall was already installed, check its rules.
-
-5. Install nvm and node (+npm) with following commands:"
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-exec zsh
-nvm install node
-```
-
-6. Open tmux session with the command `tmux` and install tmux plugins by pressing `ctrl+space I`.
-
-7. Open neovim once with command `nvim` and let it install all the plugins.
-
-8. If everything works, you can remove the old backup directories of configurations from `~/.config`. if you want to.
-
-## Potential issues
-
-The main script might not recognize, if your distribution is arch or debian based. If you know that your distribution is either, you can run the setup script with arch or debian as a variable:
-
-```bash
-./setup "arch"
-#or
-./setup "debian"
-```
-
-## To be added
-
-- Swap file creation (with hibernate?)
-- Setting variables with options
+- **`install-arch`** — Arch installation (partitioning/formatting) script; work in progress.
+- **`apps.md`** — Several apps still marked as not done (app launcher, tiling WM, Docker, RDP, mouse/keyboard tools, etc.).
+- Swap file creation (with hibernation?)
+- Configurable package selection (interactive options)
 - Clean package caches at the end?
-
-## Possibly missing packages
-
-- acpi
-- archlinux-xdg-menu
-- awesome-terminal-fonts
-- dmenu
-- gvfs
-- gvfs-gphoto2
-- gvfs-mtp
-- gvfs-ntp
-- gvfs-smb
-- i3lock
-- i3status
-- jq
-- nwq-look
-- mpv
-- numlockx
-- sysstat
-- thunar-archive-plugin
-- thunar-volman
-- tumbler
-- unzip
-- xarchiver
-- xbindkeys
-- xdg-user-dirs-gtk
-- xed
-- xorg-xbacklight
-- xorg-xdpyinfo
-- zip

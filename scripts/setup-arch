@@ -170,11 +170,8 @@ main() {
     _info_long "Moving to dotfiles directory..."
     _echo_run cd "$HOME/Workspace/dotfiles"
 
-    _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell)..."
+    _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
     _echo_run just install
-
-    _info_long "Installing terminal emulator font..."
-    _install_pkg "ttf-meslo-nerd-font-powerlevel10k" "--skipreview --noconfirm"
 
     _info_long "Installing additional packages from vars..."
     _install_packages "basic packages" "${basic_packages[@]}" "${basic_packages_aur[@]}"
