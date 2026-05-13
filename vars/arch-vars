@@ -61,7 +61,7 @@ apps_aur=(
     "bitwarden"
     "nordvpn-bin"
     "signal-desktop"
-    "whatsapp-for-linux"
+    "whatsapp-linux-desktop-bin"
     "btrfs-assistant"
     "onlyoffice-bin"
     #"vr-video-player"
