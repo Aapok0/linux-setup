@@ -50,6 +50,10 @@ INSTALL_USERNAME=""
 MNT="/mnt"
 BTRFS_MOUNT_OPTS="noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120"
 
+# Mirror configuration (match arch-install.md)
+REFLECTOR_COUNTRY="Finland"
+REFLECTOR_AGE=12
+
 # Boot partition sizes (in GB)
 BOOT_EFI_SIZE=1
 BOOT_SIZE=4
@@ -1122,6 +1126,200 @@ _setup_filesystems() {
 }
 
 # ============================================================================
+# Bootstrap and chroot boot functions
+# ============================================================================
+
+_chroot_run() {
+    _log "RUN" "arch-chroot ${MNT}: $*"
+    arch-chroot "$MNT" "$@"
+}
+
+_get_uuid() {
+    local device=$1
+    blkid -s UUID -o value "$device"
+}
+
+_configure_live_mirrors() {
+    _info "Configuring pacman mirrors (${REFLECTOR_COUNTRY})..."
+    _echo_run reflector \
+        -c "$REFLECTOR_COUNTRY" \
+        -a "$REFLECTOR_AGE" \
+        --protocol https \
+        --sort rate \
+        --download-timeout 60 \
+        --save /etc/pacman.d/mirrorlist || return 1
+}
+
+_pacstrap_base_packages() {
+    _info_long "Installing base packages with pacstrap (this may take a while)..."
+    _echo_run pacstrap "$MNT" base base-devel || return 1
+}
+
+_generate_fstab() {
+    _info "Generating fstab..."
+    _echo_run genfstab -U "$MNT" >> "${MNT}/etc/fstab" || return 1
+}
+
+_setup_bootstrap() {
+    _check_bootstrap_tools
+    _propagate_rc $? || return $?
+
+    _configure_live_mirrors
+    _propagate_rc $? || return $?
+
+    _pacstrap_base_packages
+    _propagate_rc $? || return $?
+
+    _generate_fstab
+    _propagate_rc $? || return $?
+
+    _info_long "Bootstrap completed"
+    return 0
+}
+
+_build_mkinitcpio_hooks() {
+    local hooks="base udev autodetect modconf kms keyboard keymap consolefont block"
+
+    if [ "$ENCRYPTION_ENABLED" = true ]; then
+        hooks+=" encrypt"
+    fi
+
+    hooks+=" lvm2 filesystems"
+
+    if [ "$HIBERNATION_ENABLED" = true ]; then
+        hooks+=" resume"
+    fi
+
+    hooks+=" fsck"
+    echo "$hooks"
+}
+
+_configure_pacman_chroot() {
+    local threads
+
+    threads=$(nproc)
+    _info "Setting ParallelDownloads to ${threads} in pacman.conf..."
+
+    _chroot_run sed -i \
+        -e "s/^#ParallelDownloads = .*/ParallelDownloads = ${threads}/" \
+        -e "s/^ParallelDownloads = .*/ParallelDownloads = ${threads}/" \
+        /etc/pacman.conf || return 1
+}
+
+_install_system_packages() {
+    _info_long "Installing kernel, firmware, and system packages..."
+
+    _chroot_run pacman -S --noconfirm \
+        neovim \
+        linux linux-headers linux-lts linux-lts-headers \
+        linux-firmware sof-firmware \
+        dosfstools lvm2 sudo cryptsetup btrfs-progs \
+        vim man-db man-pages texinfo git xdg-user-dirs || return 1
+}
+
+_configure_mkinitcpio() {
+    local hooks
+
+    hooks=$(_build_mkinitcpio_hooks)
+    _info "Configuring mkinitcpio (MODULES=btrfs, HOOKS=${hooks})..."
+
+    _chroot_run sed -i 's/^MODULES=.*/MODULES=(btrfs)/' /etc/mkinitcpio.conf || return 1
+    _chroot_run sed -i "s/^HOOKS=.*/HOOKS=(${hooks})/" /etc/mkinitcpio.conf || return 1
+
+    if [ "$ENCRYPTION_ENABLED" != true ]; then
+        _chroot_run sed -i \
+            -e 's/^#FILES=.*/FILES=()/' \
+            -e 's/^FILES=.*/FILES=()/' \
+            /etc/mkinitcpio.conf || return 1
+    fi
+}
+
+_install_grub_bootloader() {
+    _info "Installing GRUB bootloader..."
+
+    _chroot_run pacman -S --noconfirm grub efibootmgr || return 1
+    _chroot_run grub-install --efi-directory=/boot/efi || return 1
+}
+
+_configure_encryption_boot() {
+    local root_part_uuid root_lv_uuid home_part_uuid
+    local grub_cmdline
+
+    root_part_uuid=$(_get_uuid "$ROOT_PARTITION")
+    root_lv_uuid=$(_get_uuid "$ROOT_LV")
+    home_part_uuid=$(_get_uuid "$HOME_PARTITION")
+
+    if [ -z "$root_part_uuid" ] || [ -z "$root_lv_uuid" ] || [ -z "$home_part_uuid" ]; then
+        _error "Failed to resolve UUIDs for encrypted boot configuration"
+        return 1
+    fi
+
+    _info "Configuring encrypted boot (GRUB, keyfiles, crypttab)..."
+
+    _chroot_run mkdir -p /etc/luks_keys || return 1
+    _chroot_run dd if=/dev/urandom of=/etc/luks_keys/root_keyfile.bin bs=512 count=8 status=none || return 1
+    _chroot_run dd if=/dev/urandom of=/etc/luks_keys/home_keyfile.bin bs=512 count=8 status=none || return 1
+    _chroot_run chmod 700 /etc/luks_keys || return 1
+    _chroot_run chmod 000 /etc/luks_keys/root_keyfile.bin /etc/luks_keys/home_keyfile.bin || return 1
+
+    _info "Adding LUKS keyfiles to encrypted partitions..."
+    cryptsetup luksAddKey "$ROOT_PARTITION" "${MNT}/etc/luks_keys/root_keyfile.bin" || return 1
+    cryptsetup luksAddKey "$HOME_PARTITION" "${MNT}/etc/luks_keys/home_keyfile.bin" || return 1
+
+    grub_cmdline="loglevel=3 quiet root=UUID=${root_lv_uuid} cryptdevice=UUID=${root_part_uuid}:luks_root"
+    _chroot_run sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"${grub_cmdline}\"|" \
+        /etc/default/grub || return 1
+
+    _chroot_run sed -i \
+        -e 's/^#FILES=.*/FILES=(\/etc\/luks_keys\/root_keyfile.bin)/' \
+        -e 's/^FILES=.*/FILES=(\/etc\/luks_keys\/root_keyfile.bin)/' \
+        /etc/mkinitcpio.conf || return 1
+
+    printf '%s\t%s\t%s\t%s\n' \
+        "luks_home" "UUID=${home_part_uuid}" "/etc/luks_keys/home_keyfile.bin" "luks,initramfs" \
+        >> "${MNT}/etc/crypttab"
+
+    return 0
+}
+
+_generate_boot_images() {
+    _info_long "Generating GRUB config and initramfs images..."
+
+    _chroot_run grub-mkconfig -o /boot/grub/grub.cfg || return 1
+    _chroot_run grub-mkconfig -o /boot/efi/EFI/arch/grub.cfg || return 1
+    _chroot_run mkinitcpio -p linux || return 1
+    _chroot_run mkinitcpio -p linux-lts || return 1
+    _chroot_run bash -c 'chmod 600 /boot/initramfs-linux* 2>/dev/null || true'
+}
+
+_setup_chroot_boot() {
+    _info_long "Configuring bootable system inside chroot"
+
+    _configure_pacman_chroot
+    _propagate_rc $? || return $?
+
+    _install_system_packages
+    _propagate_rc $? "Failed to install system packages" || return $?
+
+    _configure_mkinitcpio
+    _propagate_rc $? || return $?
+
+    _install_grub_bootloader
+    _propagate_rc $? "Failed to install GRUB" || return $?
+
+    if [ "$ENCRYPTION_ENABLED" = true ]; then
+        _configure_encryption_boot
+        _propagate_rc $? "Failed to configure encrypted boot" || return $?
+    fi
+
+    _generate_boot_images
+    _propagate_rc $? "Failed to generate boot images" || return $?
+
+    _info_long "Boot setup completed"
+    return 0
+}
+
+# ============================================================================
 # Main entry point
 # ============================================================================
 
@@ -1157,16 +1355,23 @@ main() {
     _run_phase "Filesystem setup" _setup_filesystems
     _exit_on_rc $?
 
+    _run_phase "Bootstrap" _setup_bootstrap
+    _exit_on_rc $?
+
+    _run_phase "Boot setup" _setup_chroot_boot
+    _exit_on_rc $?
+
     echo ""
     echo "=========================================="
     echo "Next Steps:"
     echo "=========================================="
-    echo "1. Verify the mount summary above"
+    echo "1. System is bootable — verify GRUB entries on EFI partition"
     echo "2. Installation mounted at: $MNT"
-    echo "3. Next steps:"
-    echo "   - Mirror configuration (reflector)"
-    echo "   - pacstrap base packages"
-    echo "   - genfstab and arch-chroot"
+    echo "3. Remaining manual/script steps:"
+    echo "   - Localization (timezone, locale, keyboard)"
+    echo "   - Hostname, root password, and user: $INSTALL_USERNAME"
+    echo "   - KDE Plasma, drivers, and services"
+    echo "   - Reboot when finished"
     echo ""
     echo "For more details, see: instructions/install/arch-install.md"
     echo "=========================================="
