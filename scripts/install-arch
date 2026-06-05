@@ -45,6 +45,11 @@ ROOT_LV=""
 HOME_LV=""
 SWAP_LV=""
 
+# Install target (set before mounting)
+INSTALL_USERNAME=""
+MNT="/mnt"
+BTRFS_MOUNT_OPTS="noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120"
+
 # Boot partition sizes (in GB)
 BOOT_EFI_SIZE=1
 BOOT_SIZE=4
@@ -952,6 +957,171 @@ _setup_lvm() {
 }
 
 # ============================================================================
+# Filesystem functions
+# ============================================================================
+
+_prompt_install_username() {
+    local username
+
+    echo ""
+    echo "=========================================="
+    echo "Installation Username"
+    echo "=========================================="
+    echo "Used for the home Media subvolume mount path."
+    echo ""
+
+    while true; do
+        read -p "Enter planned username: " username
+
+        if [[ $username =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+            INSTALL_USERNAME=$username
+            _info "Username set to: $INSTALL_USERNAME"
+            return 0
+        fi
+
+        _error "Invalid username. Use lowercase letters, numbers, underscore, or hyphen."
+    done
+}
+
+_prompt_filesystem_confirmation() {
+    echo ""
+    echo "WARNING: This will format filesystems on the following devices:"
+    echo "  EFI:  $EFI_PARTITION (vfat)"
+    echo "  Boot: $BOOT_PARTITION (ext4)"
+    echo "  Root: $ROOT_LV (btrfs)"
+    echo "  Home: $HOME_LV (btrfs)"
+    if [ -n "$(_get_swap_device)" ]; then
+        echo "  Swap: $(_get_swap_device)"
+    fi
+    echo ""
+    echo "All existing data on these volumes will be permanently lost."
+    echo ""
+
+    if ! _prompt_yes_no "Create filesystems on these devices? (y/n): "; then
+        _info "Filesystem creation cancelled by user"
+        return 2
+    fi
+
+    return 0
+}
+
+_format_filesystems() {
+    _info "Formatting EFI partition: $EFI_PARTITION"
+    _echo_run mkfs.fat -F 32 "$EFI_PARTITION" || return 1
+
+    _info "Formatting boot partition: $BOOT_PARTITION"
+    _echo_run mkfs.ext4 "$BOOT_PARTITION" || return 1
+
+    local swap_device
+    swap_device=$(_get_swap_device)
+    if [ -n "$swap_device" ]; then
+        _info "Formatting swap: $swap_device"
+        _echo_run mkswap "$swap_device" || return 1
+    fi
+
+    _info "Formatting root volume: $ROOT_LV"
+    _echo_run mkfs.btrfs -L root "$ROOT_LV" || return 1
+
+    _info "Formatting home volume: $HOME_LV"
+    _echo_run mkfs.btrfs -L home "$HOME_LV" || return 1
+
+    return 0
+}
+
+_create_btrfs_subvolumes() {
+    _info "Creating root btrfs subvolumes on $ROOT_LV..."
+
+    if mountpoint -q "$MNT"; then
+        _error "$MNT is already mounted. Unmount it before continuing."
+        return 1
+    fi
+
+    _echo_run mount "$ROOT_LV" "$MNT" || return 1
+    _echo_run btrfs subvolume create "$MNT/@" || return 1
+    _echo_run btrfs subvolume create "$MNT/@snapshots" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_log" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_cache" || return 1
+    _echo_run umount -R "$MNT" || return 1
+
+    _info "Creating home btrfs subvolumes on $HOME_LV..."
+
+    _echo_run mount --mkdir "$HOME_LV" "${MNT}/home" || return 1
+    _echo_run btrfs subvolume create "${MNT}/home/@home" || return 1
+    _echo_run btrfs subvolume create "${MNT}/home/@home/@snapshots" || return 1
+    _echo_run btrfs subvolume create "${MNT}/home/@home/@media" || return 1
+    _echo_run umount -R "$MNT" || return 1
+
+    return 0
+}
+
+_mount_installation() {
+    local btrfs_opts="$BTRFS_MOUNT_OPTS"
+    local swap_device
+
+    _info "Mounting installation target at $MNT..."
+
+    if mountpoint -q "$MNT"; then
+        _error "$MNT is already mounted. Unmount it before continuing."
+        return 1
+    fi
+
+    _echo_run mount -o "$btrfs_opts,subvol=/@" "$ROOT_LV" "$MNT" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@snapshots" "$ROOT_LV" "${MNT}/.snapshots" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_log" "$ROOT_LV" "${MNT}/var/log" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_cache" "$ROOT_LV" "${MNT}/var/cache" || return 1
+    _echo_run mount --mkdir "$BOOT_PARTITION" "${MNT}/boot" || return 1
+    _echo_run mount --mkdir "$EFI_PARTITION" "${MNT}/boot/efi" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home" "$HOME_LV" "${MNT}/home" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home/@snapshots" "$HOME_LV" "${MNT}/home/.snapshots" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home/@media" "$HOME_LV" "${MNT}/home/${INSTALL_USERNAME}/Media" || return 1
+
+    swap_device=$(_get_swap_device)
+    if [ -n "$swap_device" ]; then
+        _info "Enabling swap: $swap_device"
+        _echo_run swapon "$swap_device" || return 1
+    fi
+
+    return 0
+}
+
+_print_mount_summary() {
+    echo ""
+    echo "=========================================="
+    echo "Mount Summary"
+    echo "=========================================="
+    findmnt -R "$MNT"
+    echo "=========================================="
+    echo ""
+}
+
+_setup_filesystems() {
+    _check_filesystem_tools
+    _propagate_rc $? || return $?
+
+    _prompt_install_username
+    _propagate_rc $? || return $?
+
+    _prompt_filesystem_confirmation
+    _propagate_rc $? || return $?
+
+    _info_long "Creating filesystems"
+
+    _format_filesystems
+    _propagate_rc $? "Failed to create filesystems" || return $?
+
+    _create_btrfs_subvolumes
+    _propagate_rc $? "Failed to create btrfs subvolumes" || return $?
+
+    _mount_installation
+    _propagate_rc $? "Failed to mount installation target" || return $?
+
+    _print_mount_summary
+
+    _info_long "Filesystem setup completed"
+    return 0
+}
+
+# ============================================================================
 # Main entry point
 # ============================================================================
 
@@ -984,26 +1154,19 @@ main() {
     _run_phase "LVM setup" _setup_lvm
     _exit_on_rc $?
 
+    _run_phase "Filesystem setup" _setup_filesystems
+    _exit_on_rc $?
+
     echo ""
     echo "=========================================="
     echo "Next Steps:"
     echo "=========================================="
-    echo "1. Verify the LVM summary above"
-    if [ "$ENCRYPTION_ENABLED" = true ]; then
-        echo "2. Encryption: enabled (luks_root, luks_home)"
-    else
-        echo "2. Encryption: skipped"
-    fi
-    echo "3. Root LV:  $ROOT_LV"
-    echo "   Home LV:  $HOME_LV"
-    if [ "$SWAP_TYPE" = "lvm" ]; then
-        echo "   Swap LV:  $SWAP_LV"
-    elif [ -n "$SWAP_PARTITION" ]; then
-        echo "   Swap:     $SWAP_PARTITION"
-    fi
-    echo "4. Next steps:"
-    echo "   - Filesystem creation (mkfs)"
-    echo "   - Btrfs subvolumes and mounting"
+    echo "1. Verify the mount summary above"
+    echo "2. Installation mounted at: $MNT"
+    echo "3. Next steps:"
+    echo "   - Mirror configuration (reflector)"
+    echo "   - pacstrap base packages"
+    echo "   - genfstab and arch-chroot"
     echo ""
     echo "For more details, see: instructions/install/arch-install.md"
     echo "=========================================="
