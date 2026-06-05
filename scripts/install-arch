@@ -28,6 +28,18 @@ ROOT_PARTITION=""
 HOME_PARTITION=""
 SWAP_PARTITION=""
 
+# LVM names (match arch-install.md)
+VG_ROOT="arch"
+VG_HOME="arch_home"
+LV_ROOT="root"
+LV_HOME="home"
+LV_SWAP="swap"
+
+# Resolved logical volume paths (set after LVM setup)
+ROOT_LV=""
+HOME_LV=""
+SWAP_LV=""
+
 # Boot partition sizes (in GB)
 BOOT_EFI_SIZE=1
 BOOT_SIZE=4
@@ -648,6 +660,14 @@ _get_pv_device() {
     fi
 }
 
+_get_swap_device() {
+    if [ "$SWAP_TYPE" = "lvm" ]; then
+        echo "$SWAP_LV"
+    else
+        echo "$SWAP_PARTITION"
+    fi
+}
+
 _print_partition_summary() {
     local device=$1
 
@@ -786,11 +806,110 @@ _setup_encryption() {
 }
 
 # ============================================================================
+# LVM functions
+# ============================================================================
+
+_setup_root_volume_group() {
+    local pv
+
+    pv=$(_get_pv_device root) || return 1
+
+    _info "Creating physical volume on $pv..."
+    _echo_run pvcreate "$pv" || return 1
+
+    _info "Creating volume group $VG_ROOT..."
+    _echo_run vgcreate "$VG_ROOT" "$pv" || return 1
+
+    if [ "$SWAP_TYPE" = "lvm" ]; then
+        _info "Creating swap logical volume (${SWAP_SIZE}GB)..."
+        _echo_run lvcreate -n "$LV_SWAP" -L "${SWAP_SIZE}G" -C y "$VG_ROOT" || return 1
+        SWAP_LV="/dev/mapper/${VG_ROOT}-${LV_SWAP}"
+        _info "Swap LV: $SWAP_LV"
+    fi
+
+    if [ "$SWAP_TYPE" = "lvm" ] || [ "$ROOT_SIZE_UNIT" = "all" ]; then
+        _info "Creating root logical volume (all remaining space in $VG_ROOT)..."
+        _echo_run lvcreate -n "$LV_ROOT" -l +100%FREE "$VG_ROOT" || return 1
+    else
+        _info "Creating root logical volume (${ROOT_SIZE}${ROOT_SIZE_UNIT})..."
+        _echo_run lvcreate -n "$LV_ROOT" -L "${ROOT_SIZE}${ROOT_SIZE_UNIT}" "$VG_ROOT" || return 1
+    fi
+
+    ROOT_LV="/dev/mapper/${VG_ROOT}-${LV_ROOT}"
+    _info "Root LV: $ROOT_LV"
+
+    return 0
+}
+
+_setup_home_volume_group() {
+    local pv
+
+    pv=$(_get_pv_device home) || return 1
+
+    _info "Creating physical volume on $pv..."
+    _echo_run pvcreate "$pv" || return 1
+
+    _info "Creating volume group $VG_HOME..."
+    _echo_run vgcreate "$VG_HOME" "$pv" || return 1
+
+    if [ "$HOME_SIZE_UNIT" = "all" ]; then
+        _info "Creating home logical volume (all remaining space in $VG_HOME)..."
+        _echo_run lvcreate -n "$LV_HOME" -l +100%FREE "$VG_HOME" || return 1
+    else
+        _info "Creating home logical volume (${HOME_SIZE}${HOME_SIZE_UNIT})..."
+        _echo_run lvcreate -n "$LV_HOME" -L "${HOME_SIZE}${HOME_SIZE_UNIT}" "$VG_HOME" || return 1
+    fi
+
+    HOME_LV="/dev/mapper/${VG_HOME}-${LV_HOME}"
+    _info "Home LV: $HOME_LV"
+
+    return 0
+}
+
+_activate_volume_groups() {
+    _info "Scanning and activating volume groups..."
+    _echo_run vgscan || return 1
+    _echo_run vgchange -ay || return 1
+}
+
+_print_lvm_summary() {
+    echo ""
+    echo "=========================================="
+    echo "LVM Summary"
+    echo "=========================================="
+    vgs
+    echo ""
+    lvs
+    echo "=========================================="
+    echo ""
+}
+
+_setup_lvm() {
+    _info_long "Setting up LVM volume groups"
+
+    _setup_root_volume_group || {
+        _error "Failed to set up root volume group"
+        return 1
+    }
+
+    _setup_home_volume_group || {
+        _error "Failed to set up home volume group"
+        return 1
+    }
+
+    _activate_volume_groups || return 1
+    _print_lvm_summary
+
+    _info_long "LVM setup completed"
+    return 0
+}
+
+# ============================================================================
 # Main entry point
 # ============================================================================
 
 main() {
-    _info_long "Arch Linux Installation Script - Disk Setup Phase"
+    _info_long "Arch Linux Installation Script"
 
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
@@ -831,20 +950,34 @@ main() {
         _info "Skipping encryption"
     fi
 
+    _setup_lvm
+    exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+        _error "LVM setup failed. Exiting."
+        exit 1
+    fi
+
     echo ""
     echo "=========================================="
     echo "Next Steps:"
     echo "=========================================="
-    echo "1. Verify the partition tables above"
+    echo "1. Verify the LVM summary above"
     if [ "$ENCRYPTION_ENABLED" = true ]; then
         echo "2. Encryption: enabled (luks_root, luks_home)"
-        echo "3. Next steps:"
     else
         echo "2. Encryption: skipped"
-        echo "3. Next steps:"
     fi
-    echo "   - Logical volume creation (lvm2)"
-    echo "   - Filesystem creation and mounting"
+    echo "3. Root LV:  $ROOT_LV"
+    echo "   Home LV:  $HOME_LV"
+    if [ "$SWAP_TYPE" = "lvm" ]; then
+        echo "   Swap LV:  $SWAP_LV"
+    elif [ -n "$SWAP_PARTITION" ]; then
+        echo "   Swap:     $SWAP_PARTITION"
+    fi
+    echo "4. Next steps:"
+    echo "   - Filesystem creation (mkfs)"
+    echo "   - Btrfs subvolumes and mounting"
     echo ""
     echo "For more details, see: instructions/install/arch-install.md"
     echo "=========================================="
