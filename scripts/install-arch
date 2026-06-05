@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
+
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
@@ -53,7 +58,7 @@ declare -a AVAILABLE_DEVICES
 
 _log() {
     local level="$1" msg="$2"
-    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg"
+    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" >&2
 }
 
 _info() {
@@ -78,6 +83,45 @@ _warn() {
 _echo_run() {
     _log "RUN" "$*"
     "$@" || { _error "Command failed: $*"; return 1; }
+}
+
+_propagate_rc() {
+    local rc=$1
+    local err_msg=${2:-}
+
+    case $rc in
+        0) return 0 ;;
+        2) return 2 ;;
+        *)
+            if [ -n "$err_msg" ]; then
+                _error "$err_msg"
+            fi
+            return 1
+            ;;
+    esac
+}
+
+_run_phase() {
+    local name=$1
+    shift
+
+    "$@"
+    _propagate_rc $? "$name failed"
+}
+
+_exit_on_rc() {
+    local rc=$1
+
+    case $rc in
+        0) return 0 ;;
+        2)
+            _info "Installation cancelled by user. Exiting."
+            exit 0
+            ;;
+        *)
+            exit 1
+            ;;
+    esac
 }
 
 # ============================================================================
@@ -518,7 +562,8 @@ _setup_disk_partitions() {
     local is_root_device=$6
 
     # Prompt for confirmation before destructive operation
-    _prompt_format_confirmation "$device" || return 1
+    _prompt_format_confirmation "$device"
+    _propagate_rc $? || return $?
 
     _info "Initializing partition table on $device..."
 
@@ -683,29 +728,37 @@ _print_partition_summary() {
 
 _setup_disk_configuration() {
     _info_long "Starting Arch Linux disk setup configuration"
-    _list_available_devices || return 1
+    _list_available_devices
+    _propagate_rc $? || return $?
 
     # Select root device
-    _prompt_device_selection "Enter root device index number or name (e.g., 1, 2 or sda, nvme0n1): " ROOT_DEVICE || return 1
+    _prompt_device_selection "Enter root device index number or name (e.g., 1, 2 or sda, nvme0n1): " ROOT_DEVICE
+    _propagate_rc $? || return $?
 
     # Select home device
-    _prompt_device_selection "Enter home device index number or name (e.g., 1, 2 or sda, nvme0n1, or same as root): " HOME_DEVICE || return 1
+    _prompt_device_selection "Enter home device index number or name (e.g., 1, 2 or sda, nvme0n1, or same as root): " HOME_DEVICE
+    _propagate_rc $? || return $?
 
     # Configure swap BEFORE partition sizes (so available space can be calculated)
-    _prompt_swap_type || return 1
+    _prompt_swap_type
+    _propagate_rc $? || return $?
     _prompt_hibernation
     _calculate_swap_size
 
     # Configure root partition size (accounting for boot and swap)
-    _prompt_partition_size "ROOT" "$ROOT_DEVICE" || return 1
+    _prompt_partition_size "ROOT" "$ROOT_DEVICE"
+    _propagate_rc $? || return $?
 
     # Configure home partition size (accounting for reserved space)
-    _prompt_partition_size "HOME" "$HOME_DEVICE" || return 1
+    _prompt_partition_size "HOME" "$HOME_DEVICE"
+    _propagate_rc $? || return $?
 
     # Validate and display summary
-    _validate_devices || return 1
+    _validate_devices
+    _propagate_rc $? || return $?
     _print_configuration_summary
-    _confirm_configuration || return 1
+    _confirm_configuration
+    _propagate_rc $? || return $?
 
     _info_long "Proceeding with disk partitioning"
 
@@ -715,18 +768,14 @@ _setup_disk_configuration() {
     if [ "$SWAP_TYPE" = "partition" ]; then
         swap_on_root=true
     fi
-    _setup_disk_partitions "$ROOT_DEVICE" "$ROOT_SIZE" "$ROOT_SIZE_UNIT" "$SWAP_SIZE" "$swap_on_root" true || {
-        _error "Failed to partition root device"
-        return 1
-    }
+    _setup_disk_partitions "$ROOT_DEVICE" "$ROOT_SIZE" "$ROOT_SIZE_UNIT" "$SWAP_SIZE" "$swap_on_root" true
+    _propagate_rc $? "Failed to partition root device" || return $?
 
     # Partition home device if it's different from root
     if [ "$HOME_DEVICE" != "$ROOT_DEVICE" ]; then
         _info "Partitioning home device: $HOME_DEVICE"
-        _setup_disk_partitions "$HOME_DEVICE" "$HOME_SIZE" "$HOME_SIZE_UNIT" 0 false false || {
-            _error "Failed to partition home device"
-            return 1
-        }
+        _setup_disk_partitions "$HOME_DEVICE" "$HOME_SIZE" "$HOME_SIZE_UNIT" 0 false false
+        _propagate_rc $? "Failed to partition home device" || return $?
     fi
 
     # Display final partition tables
@@ -736,10 +785,8 @@ _setup_disk_configuration() {
         _print_partition_summary "$HOME_DEVICE"
     fi
 
-    _resolve_partition_paths || {
-        _error "Failed to resolve partition paths"
-        return 1
-    }
+    _resolve_partition_paths
+    _propagate_rc $? "Failed to resolve partition paths" || return $?
 
     _info_long "Disk configuration and partitioning completed successfully"
 
@@ -793,10 +840,13 @@ _setup_encryption() {
         return 1
     fi
 
-    _load_crypt_modules || return 1
+    _load_crypt_modules
+    _propagate_rc $? || return $?
 
-    _encrypt_and_open_partition "$ROOT_PARTITION" luks_root || return $?
-    _encrypt_and_open_partition "$HOME_PARTITION" luks_home || return $?
+    _encrypt_and_open_partition "$ROOT_PARTITION" luks_root
+    _propagate_rc $? || return $?
+    _encrypt_and_open_partition "$HOME_PARTITION" luks_home
+    _propagate_rc $? || return $?
 
     _info_long "Encryption completed"
     _info "Root PV: $(_get_pv_device root)"
@@ -887,17 +937,14 @@ _print_lvm_summary() {
 _setup_lvm() {
     _info_long "Setting up LVM volume groups"
 
-    _setup_root_volume_group || {
-        _error "Failed to set up root volume group"
-        return 1
-    }
+    _setup_root_volume_group
+    _propagate_rc $? "Failed to set up root volume group" || return $?
 
-    _setup_home_volume_group || {
-        _error "Failed to set up home volume group"
-        return 1
-    }
+    _setup_home_volume_group
+    _propagate_rc $? "Failed to set up home volume group" || return $?
 
-    _activate_volume_groups || return 1
+    _activate_volume_groups
+    _propagate_rc $? || return $?
     _print_lvm_summary
 
     _info_long "LVM setup completed"
@@ -922,41 +969,20 @@ main() {
         _warn "Internet connection not available. Some features may not work."
     fi
 
-    _setup_disk_configuration
-    local exit_code=$?
-
-    if [ $exit_code -eq 2 ]; then
-        _info "Installation cancelled by user. Exiting."
-        exit 0
-    elif [ $exit_code -ne 0 ]; then
-        _error "Disk setup configuration failed. Exiting."
-        exit 1
-    fi
+    _run_phase "Disk setup" _setup_disk_configuration
+    _exit_on_rc $?
 
     echo ""
     if _prompt_yes_no "Encrypt root and home partitions with LUKS2? (y/n): "; then
         ENCRYPTION_ENABLED=true
-        _setup_encryption
-        exit_code=$?
-
-        if [ $exit_code -eq 2 ]; then
-            _info "Encryption cancelled by user. Exiting."
-            exit 0
-        elif [ $exit_code -ne 0 ]; then
-            _error "Encryption setup failed. Exiting."
-            exit 1
-        fi
+        _run_phase "Encryption setup" _setup_encryption
+        _exit_on_rc $?
     else
         _info "Skipping encryption"
     fi
 
-    _setup_lvm
-    exit_code=$?
-
-    if [ $exit_code -ne 0 ]; then
-        _error "LVM setup failed. Exiting."
-        exit 1
-    fi
+    _run_phase "LVM setup" _setup_lvm
+    _exit_on_rc $?
 
     echo ""
     echo "=========================================="
