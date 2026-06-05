@@ -15,7 +15,8 @@
 # Packages kept here are those needed BEFORE running justfile or not included in justfile
 
 basic_packages=(
-    "git"           # Required to clone dotfiles before running justfile
+    "git"
+    "just"
     "curl"          # Needed for various installations
     "wget"
     "sed"
@@ -33,6 +34,10 @@ basic_packages=(
     "pnpm"
     "fastfetch"
     "exfat-utils"
+    "smartmontools"
+    "fwupd"
+    "snapper"
+    "btrfs-progs"
 )
 
 basic_packages_aur=(

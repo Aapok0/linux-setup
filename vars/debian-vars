@@ -22,7 +22,8 @@ apt_tools=(
 )
 
 basic_packages=(
-    "git"           # Required to clone dotfiles before running justfile
+    "git"
+    "just"
     "curl"          # Needed for various installations
     "wget"
     "sed"
@@ -39,6 +40,10 @@ basic_packages=(
     "pnpm"
     "fastfetch"
     "exfatprogs"
+    "smartmontools"
+    "fwupd"
+    "snapper"
+    "btrfs-progs"
 )
 
 basic_packages_pip=(

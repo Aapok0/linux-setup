@@ -1,10 +1,10 @@
 # Linux Setup
 
-Scripts to set up my preferred environment on Arch or Debian based distributions.
+Scripts to set up my preferred environment on Arch, Debian, or Fedora based distributions.
 
 ## What it does
 
-The setup script detects (or accepts as argument) whether the system is Arch or Debian based, then:
+The setup script detects (or accepts as argument) whether the system is Arch, Debian, or Fedora based, then:
 
 1. Updates system packages
 2. Checks for existing firewalls and installs/enables `ufw` if none found
@@ -20,6 +20,8 @@ The setup script detects (or accepts as argument) whether the system is Arch or 
 
 **Debian-specific:** Installs `nala` and apt tools, installs `pyenv`/`nvm`/`tfswitch` manually (no AUR), adds NordVPN repo.
 
+**Fedora-specific:** Enables RPM Fusion, installs packages from `dnf_*`, `rpmfusion_*`, and `flatpak_*` groups in `vars/fedora-vars`, installs `pyenv`/`nvm`/`tfswitch` manually, adds NordVPN repo.
+
 Output is logged to `logs/<timestamp>_setup.log`.
 
 ## Repository structure
@@ -29,13 +31,15 @@ Output is logged to `logs/<timestamp>_setup.log`.
 ├── scripts/
 │   ├── setup-arch              # Full Arch (KDE) setup
 │   ├── setup-debian            # Full Debian (KDE) setup
+│   ├── setup-fedora            # Full Fedora (KDE) setup
 │   ├── setup-arch-i3           # Older i3-based Arch setup (unused)
 │   └── install-arch            # Arch Linux installation script (partitioning, etc.)
 ├── vars/
 │   ├── arch-vars               # Package lists for Arch (pacman & paru/AUR)
-│   └── debian-vars             # Package lists for Debian (apt & extras)
+│   ├── debian-vars             # Package lists for Debian (apt & extras)
+│   └── fedora-vars             # Package lists for Fedora (dnf & extras)
 ├── instructions/
-│   ├── install/                # Arch install & reinstall guides
+│   ├── install/                # Arch, Debian & Fedora install guides
 │   └── post-install/           # App-specific settings & configuration notes
 ├── apps.md                     # App decision log (done / not done / to investigate)
 └── logs/                       # Created at runtime (gitignored)
@@ -47,6 +51,7 @@ Output is logged to `logs/<timestamp>_setup.log`.
 - `git` available to clone this repo and dotfiles
 - **Arch:** `base-devel` installed (needed to build `paru`)
 - **Debian:** `sudo` and `apt` working
+- **Fedora:** `sudo` and `dnf` working
 
 ## Pre-setup
 
@@ -81,9 +86,10 @@ chmod u+x setup scripts/*
 # or explicitly:
 ./setup arch
 ./setup debian
+./setup fedora
 ```
 
-The script auto-detects the distro from `/etc/os-release`. Pass `arch` or `debian` manually if detection fails.
+The script auto-detects the distro from `/etc/os-release`. Pass `arch`, `debian`, or `fedora` manually if detection fails.
 
 ## Post-setup
 

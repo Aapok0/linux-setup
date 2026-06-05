@@ -142,6 +142,9 @@ main() {
     fi
     _echo_run paru --noconfirm -Syu
 
+    _info_long "Installing basic packages..."
+    _install_packages "basic packages" "${basic_packages[@]}"
+
     _info_long "Checking if there's an existing firewall service running..."
     _check_firewall_service "ufw" "ufw"
     _check_firewall_service "nftables" "nft"
@@ -173,8 +176,8 @@ main() {
     _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
     _echo_run just install
 
-    _info_long "Installing additional packages from vars..."
-    _install_packages "basic packages" "${basic_packages[@]}" "${basic_packages_aur[@]}"
+    _info_long "Installing additional AUR packages..."
+    _install_packages "basic packages (AUR)" "${basic_packages_aur[@]}"
 
     _info "Setting up git user configuration..."
     _setup_git_config

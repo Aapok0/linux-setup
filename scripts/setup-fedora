@@ -2,10 +2,11 @@
 
 set -o pipefail
 
-source vars/debian-vars
+source vars/fedora-vars
 USERNAME=$1
 SETUP_UFW=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FEDORA_VERSION="$(rpm -E %fedora 2>/dev/null || echo "")"
 
 exec 1> >(tee -a "$LOGFILE") 2>&1
 
@@ -38,6 +39,10 @@ _echo_run() {
     "$@" || { _error "Command failed: $*"; return 1; }
 }
 
+_dnf() {
+    sudo dnf "$@"
+}
+
 _to_ssh_url() {
     local url=$1
     echo "$url" | sed 's|https://github\.com/|git@github.com:|'
@@ -64,25 +69,25 @@ _check_firewall_service() {
 _setup_git_config() {
     local config_dir="$HOME/.config/git"
     local config_file="$config_dir/config.local"
-    
+
     [ -d "$config_dir" ] || _echo_run mkdir -p "$config_dir"
-    
+
     if [ -f "$config_file" ]; then
         _info "Git config already exists at $config_file"
         return 0
     fi
-    
+
     _info "Enter your Git user name or real name (or press Enter to skip):"
     read -p "  → " git_name
-    
+
     if [ -z "$git_name" ]; then
         _warn "Skipped git config setup"
         return 0
     fi
-    
+
     _info "Enter your Git email:"
     read -p "  → " git_email
-    
+
     _echo_run mkdir -p "$config_dir"
     cat > "$config_file" << EOF
 [user]
@@ -93,7 +98,7 @@ EOF
 }
 
 _pkg_is_installed() {
-    dpkg -l | grep -q "^ii.*$1"
+    rpm -q "$1" &> /dev/null
 }
 
 _install_pkg() {
@@ -102,7 +107,7 @@ _install_pkg() {
         return 0
     }
     _info "Installing $1"
-    _echo_run sudo nala install -y "$1"
+    _echo_run _dnf install -y "$1"
 }
 
 _install_packages() {
@@ -111,18 +116,107 @@ _install_packages() {
     local packages=("$@")
     [ -n "$category" ] && [ "$category" != "." ] && _info_long "Installing $category..."
     for pkg in "${packages[@]}"; do
+        [ -z "$pkg" ] && continue
+        [[ "$pkg" == \#* ]] && continue
         _pkg_is_installed "$pkg" && {
             _info "Package $pkg already installed"
             continue
         }
         echo -e "\n[SETUP_INFO] : Installing $pkg\n"
         sleep 2
-        _echo_run sudo nala install -y "$pkg"
+        _echo_run _dnf install -y "$pkg"
     done
 }
 
+_install_flatpak_apps() {
+    local category="$1"
+    shift
+    local apps=("$@")
+    [ ${#apps[@]} -eq 0 ] && return 0
+
+    command -v flatpak &> /dev/null || {
+        _warn "flatpak not installed; skipping $category"
+        return 0
+    }
+
+    _info_long "Installing $category..."
+    _echo_run flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    for app in "${apps[@]}"; do
+        [ -z "$app" ] && continue
+        [[ "$app" == \#* ]] && continue
+        flatpak list --app | grep -q "$app" && {
+            _info "Flatpak $app already installed"
+            continue
+        }
+        echo -e "\n[SETUP_INFO] : Installing flatpak $app\n"
+        sleep 2
+        _echo_run flatpak install -y flathub "$app"
+    done
+}
+
+_enable_rpmfusion() {
+    [ -n "$FEDORA_VERSION" ] || {
+        _warn "Could not detect Fedora version; skipping RPM Fusion setup"
+        return 0
+    }
+
+    if rpm -q rpmfusion-free-release &> /dev/null && rpm -q rpmfusion-nonfree-release &> /dev/null; then
+        _info "RPM Fusion already enabled"
+        return 0
+    fi
+
+    _info_long "Enabling RPM Fusion free and nonfree repositories..."
+    _echo_run _dnf install -y \
+        "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VERSION}.noarch.rpm" \
+        "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VERSION}.noarch.rpm"
+}
+
+_setup_nordvpn() {
+    if command -v nordvpn &> /dev/null; then
+        _info "NordVPN already installed"
+        return 0
+    fi
+
+    _info_long "Setting up NordVPN..."
+    _echo_run sudo rpm --import https://repo.nordvpn.com/gpg/nordvpn_public.asc
+    _echo_run sudo tee /etc/yum.repos.d/nordvpn.repo > /dev/null << 'EOF'
+[nordvpn]
+name=NordVPN
+baseurl=https://repo.nordvpn.com/yum/nordvpn/centos/$basearch/
+gpgkey=https://repo.nordvpn.com/gpg/nordvpn_public.asc
+gpgcheck=1
+enabled=1
+EOF
+    _install_pkg "nordvpn"
+    _info "Creating nordvpn group and adding user"
+    _echo_run sudo groupadd -r nordvpn 2>/dev/null || true
+    _echo_run sudo usermod -aG nordvpn "$USERNAME"
+    _info "Enabling and starting nordvpn service..."
+    _echo_run sudo systemctl enable nordvpnd.service
+    _echo_run sudo systemctl start nordvpnd.service
+    _info "NordVPN installed and configured"
+    _info "Login with: nordvpn login --token \"<token_from_account_here>\""
+}
+
+_setup_systemd_resolved() {
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "systemd-resolved already setup"
+        return 0
+    fi
+
+    if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q systemd; then
+        _info "systemd-resolved already in use"
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        return 0
+    fi
+
+    _echo_run sudo systemctl enable --now systemd-resolved.service
+    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+}
+
 main() {
-    _info_long "Setting up environment for a Debian-based distribution."
+    _info_long "Setting up environment for a Fedora-based distribution."
 
     _info "Converting linux-setup repository to SSH..."
     if [ -d "$SCRIPT_DIR/.git" ]; then
@@ -130,15 +224,15 @@ main() {
     fi
 
     _info_long "Updating package lists and upgrading system..."
-    _echo_run sudo apt-get update
-    _echo_run sudo apt-get upgrade -y
+    _echo_run _dnf upgrade --refresh -y
 
-    _info_long "Installing nala and apt tools..."
-    _install_packages "apt tools" "${apt_tools[@]}"
-    _echo_run sudo nala update
+    _info_long "Installing dnf tools..."
+    _install_packages "dnf tools" "${dnf_tools[@]}"
 
-    _info_long "Installing basic packages..."
-    _install_packages "basic packages" "${basic_packages[@]}"
+    _enable_rpmfusion
+
+    _info_long "Installing dnf packages..."
+    _install_packages "dnf packages" "${dnf_packages[@]}"
 
     _info_long "Checking if there's an existing firewall service running..."
     _check_firewall_service "ufw" "ufw"
@@ -174,16 +268,35 @@ main() {
     _info "Setting up git user configuration..."
     _setup_git_config
 
-    _info_long "Installing KDE and additional apps..."
-    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
-    _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
-    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
+    _info_long "Installing dnf KDE packages..."
+    _install_packages "dnf kde" "${dnf_kde[@]}"
+    _info_long "Installing dnf apps..."
+    _install_packages "dnf apps" "${dnf_apps[@]}"
+    _info_long "Installing dnf gaming packages..."
+    _install_packages "dnf gaming" "${dnf_gaming[@]}"
+    _info_long "Installing RPM Fusion free packages..."
+    _install_packages "rpmfusion free" "${rpmfusion_free_packages[@]}"
+    _info_long "Installing RPM Fusion nonfree packages..."
+    _install_packages "rpmfusion nonfree" "${rpmfusion_nonfree_packages[@]}"
+    _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
 
-    _info_long "Setting Steam Tinker Launch as a Steam compatibility tool..."
-    _echo_run steamtinkerlaunch compat add
+    if command -v steamtinkerlaunch &> /dev/null; then
+        _info_long "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _echo_run steamtinkerlaunch compat add
+    else
+        _warn "steamtinkerlaunch not installed; skip compat add (enable in flatpak_apps or install manually)"
+    fi
 
-    _info_long "Installing extra tools via pip..."
-    _echo_run python3 -m pip install --user "${basic_packages_pip[@]}"
+    _info_long "Installing pip/pipx and extra Python CLI tools..."
+    _install_pkg "python3-pip"
+    _install_pkg "pipx"
+    for tool in "${pip_packages[@]}"; do
+        command -v "$tool" &> /dev/null && {
+            _info "$tool already available"
+            continue
+        }
+        _echo_run pipx install "$tool"
+    done
 
     _info_long "Installing pyenv for Python version management..."
     if ! command -v pyenv &> /dev/null; then
@@ -226,32 +339,9 @@ main() {
     fi
 
     _info_long "Doing initial setup for systemd-resolved (for DNS)..."
-    if [ -f "/etc/resolv.conf.bak" ]; then
-        _info "systemd-resolved already setup"
-    else
-        _echo_run sudo systemctl enable --now systemd-resolved.service
-        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
-        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-    fi
+    _setup_systemd_resolved
 
-    _info_long "Setting up NordVPN..."
-    if ! command -v nordvpn &> /dev/null; then
-        _info "Adding NordVPN repository and installing..."
-        _echo_run curl https://repo.nordvpn.com/gpg/nordvpn_public.asc | sudo apt-key add -
-        _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'
-        _echo_run sudo nala update
-        _install_pkg "nordvpn"
-        _info "Creating nordvpn group and adding user"
-        _echo_run sudo groupadd -r nordvpn 2>/dev/null || true
-        _echo_run sudo gpasswd -a $USERNAME nordvpn
-        _info "Enabling and starting nordvpn service..."
-        _echo_run sudo systemctl enable nordvpnd.service
-        _echo_run sudo systemctl start nordvpnd.service
-        _info "NordVPN installed and configured"
-        _info "Login with: nordvpn login --token \"<token_from_account_here>\""
-    else
-        _info "NordVPN already installed"
-    fi
+    _setup_nordvpn
 
     _log "INFO" "Setup completed. Log saved to: $LOGFILE"
 }
