@@ -7,11 +7,12 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root (parent of scripts/) — absolute path, independent of cwd
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
-LOGFILE="../logs/${timestamp}_install-arch.log"
+LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch.log"
 
-mkdir -p logs
+mkdir -p "${REPO_ROOT}/logs"
 exec 1> >(tee -a "$LOGFILE") 2>&1
 
 # Configuration variables
@@ -68,36 +69,62 @@ BOOT_SIZE=4
 declare -a AVAILABLE_DEVICES
 
 # ============================================================================
-# Logging and output functions (reused from setup-arch)
+# Logging and output functions
 # ============================================================================
 
 _log() {
-    local level="$1" msg="$2"
-    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" >&2
+    local level="$1"
+    shift
+    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*" >&2
+}
+
+_out() {
+    _log "OUT" "$@"
+}
+
+_section() {
+    _out "=========================================="
+    _out "$1"
+    _out "=========================================="
 }
 
 _info() {
-    _log "INFO" "$*"
-    sleep 2
-}
-
-_info_long() {
-    _log "INFO" "$*"
-    sleep 3
+    _log "INFO" "$@"
 }
 
 _error() {
-    _log "ERROR" "$*"
-    sleep 3
+    _log "ERROR" "$@"
 }
 
 _warn() {
-    _log "WARN" "$*"
+    _log "WARN" "$@"
+}
+
+_log_cmd_output() {
+    local output rc=0
+
+    _log "RUN" "$*"
+    output=$("$@" 2>&1) || rc=$?
+
+    if [ -n "$output" ]; then
+        while IFS= read -r line; do
+            _log "OUT" "$line"
+        done <<< "$output"
+    fi
+
+    return "$rc"
 }
 
 _echo_run() {
     _log "RUN" "$*"
-    "$@" || { _error "Command failed: $*"; return 1; }
+    "$@" || {
+        _error "Command failed (exit $?): $*"
+        return 1
+    }
+}
+
+_log_interactive() {
+    _log "RUN" "$* (interactive)"
 }
 
 _propagate_rc() {
@@ -117,11 +144,17 @@ _propagate_rc() {
 }
 
 _run_phase() {
-    local name=$1
+    local name=$1 rc
     shift
 
+    _section "Phase: ${name}"
+    _info "Starting phase: ${name}"
     "$@"
-    _propagate_rc $? "$name failed"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        _info "Phase completed: ${name}"
+    fi
+    _propagate_rc $rc "${name} failed"
 }
 
 _exit_on_rc() {
@@ -157,7 +190,7 @@ _human_readable_size() {
 }
 
 _list_available_devices() {
-    _info_long "Scanning available block devices..."
+    _info "Scanning available block devices..."
 
     local -a devices
 
@@ -174,18 +207,15 @@ _list_available_devices() {
     # Store globally for use in selection function
     AVAILABLE_DEVICES=("${devices[@]}")
 
-    echo ""
-    echo "=========================================="
-    echo "Available Block Devices"
-    echo "=========================================="
+    _section "Available Block Devices"
 
     local idx=0
     while [ $idx -lt ${#devices[@]} ]; do
-        echo "[$idx] ${devices[$idx]}"
+        _out "[$idx] ${devices[$idx]}"
         ((idx++))
     done
 
-    echo ""
+    _out ""
     return 0
 }
 
@@ -281,24 +311,24 @@ _prompt_partition_size() {
     local size_unit
 
     while true; do
-        echo ""
-        echo "Configuring size for $partition_name on $device"
-        echo "  Total device size: ~$device_size_human"
-        echo "  Available space:   ~${available_gb}GB"
+        _out ""
+        _out "Configuring size for $partition_name on $device"
+        _out "  Total device size: ~$device_size_human"
+        _out "  Available space:   ~${available_gb}GB"
 
         if [ "$partition_name" = "ROOT" ]; then
             if [ "$SWAP_TYPE" = "partition" ]; then
-                echo "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + Swap (${SWAP_SIZE}GB)"
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + Swap (${SWAP_SIZE}GB)"
             else
-                echo "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB)"
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB)"
             fi
         fi
 
         if [ "$partition_name" = "HOME" ] && [ "$HOME_DEVICE" = "$ROOT_DEVICE" ]; then
             if [ "$SWAP_TYPE" = "partition" ]; then
-                echo "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + Swap (${SWAP_SIZE}GB) + ROOT (${ROOT_SIZE}${ROOT_SIZE_UNIT})"
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + Swap (${SWAP_SIZE}GB) + ROOT (${ROOT_SIZE}${ROOT_SIZE_UNIT})"
             else
-                echo "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + ROOT (${ROOT_SIZE}${ROOT_SIZE_UNIT})"
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + ROOT (${ROOT_SIZE}${ROOT_SIZE_UNIT})"
             fi
         fi
 
@@ -337,16 +367,13 @@ _get_total_ram() {
 _prompt_swap_type() {
     local swap_type
 
-    echo ""
-    echo "=========================================="
-    echo "Swap Configuration"
-    echo "=========================================="
-    echo ""
+    _section "Swap Configuration"
+    _out ""
 
     while true; do
-        echo "Select swap type:"
-        echo "[1] Swap as partition"
-        echo "[2] Swap as LVM logical volume"
+        _out "Select swap type:"
+        _out "[1] Swap as partition"
+        _out "[2] Swap as LVM logical volume"
         read -p "Enter choice [1 or 2]: " swap_type
 
         case $swap_type in
@@ -370,7 +397,7 @@ _prompt_swap_type() {
 _prompt_hibernation() {
     local response
 
-    echo ""
+    _out ""
     read -p "Do you need hibernation support? (y/n): " response
 
     if [[ $response =~ ^[Yy]$ ]]; then
@@ -474,37 +501,34 @@ _print_configuration_summary() {
         home_display="${HOME_SIZE}${HOME_SIZE_UNIT}"
     fi
 
-    echo ""
-    echo "=========================================="
-    echo "Installation Configuration Summary"
-    echo "=========================================="
-    echo ""
-    echo "Root Device:              $ROOT_DEVICE"
-    echo "Root Partition Size:      $root_display"
-    echo ""
-    echo "Home Device:              $HOME_DEVICE"
-    echo "Home Partition Size:      $home_display"
-    echo ""
-    echo "Swap Type:                $SWAP_TYPE"
-    echo "Swap Size:                ${SWAP_SIZE}GB"
-    echo "Hibernation Support:      $([ "$HIBERNATION_ENABLED" = true ] && echo "Yes" || echo "No")"
-    echo ""
-    echo "=========================================="
-    echo ""
+    _section "Installation Configuration Summary"
+    _out ""
+    _out "Root Device:              $ROOT_DEVICE"
+    _out "Root Partition Size:      $root_display"
+    _out ""
+    _out "Home Device:              $HOME_DEVICE"
+    _out "Home Partition Size:      $home_display"
+    _out ""
+    _out "Swap Type:                $SWAP_TYPE"
+    _out "Swap Size:                ${SWAP_SIZE}GB"
+    _out "Hibernation Support:      $([ "$HIBERNATION_ENABLED" = true ] && echo "Yes" || echo "No")"
+    _out ""
 }
 
 _confirm_configuration() {
     local response
 
     while true; do
-        read -p "Do you want to proceed with this configuration? (yes/no): " response
+        read -r -p "Do you want to proceed with this configuration? (yes/no): " response
 
         case $response in
             yes)
+                _out "Configuration confirmed: yes"
                 _info "Configuration confirmed"
                 return 0
                 ;;
             no)
+                _out "Configuration confirmed: no"
                 _info "Configuration cancelled by user"
                 return 2
                 ;;
@@ -520,13 +544,15 @@ _prompt_yes_no() {
     local response
 
     while true; do
-        read -p "$prompt_msg" response
+        read -r -p "$prompt_msg" response
 
         case $response in
             [Yy]|[Yy][Ee][Ss])
+                _out "${prompt_msg} yes"
                 return 0
                 ;;
             [Nn]|[Nn][Oo])
+                _out "${prompt_msg} no"
                 return 1
                 ;;
             *)
@@ -544,10 +570,10 @@ _prompt_format_confirmation() {
     local device=$1
     local response
 
-    echo ""
-    echo "WARNING: This will DESTROY all data on $device"
-    echo "All existing partitions and data will be permanently lost."
-    echo ""
+    _out ""
+    _warn "WARNING: This will DESTROY all data on $device"
+    _warn "All existing partitions and data will be permanently lost."
+    _out ""
 
     while true; do
         read -p "Do you want to format $device and create new partitions? (yes/no): " response
@@ -732,9 +758,7 @@ _print_partition_summary() {
     local device=$1
 
     _info "Current partition table for $device:"
-    parted -s "$device" print
-
-    return 0
+    _log_cmd_output parted -s "$device" print
 }
 
 # ============================================================================
@@ -742,7 +766,7 @@ _print_partition_summary() {
 # ============================================================================
 
 _setup_disk_configuration() {
-    _info_long "Starting Arch Linux disk setup configuration"
+    _info "Starting Arch Linux disk setup configuration"
     _list_available_devices
     _propagate_rc $? || return $?
 
@@ -775,7 +799,7 @@ _setup_disk_configuration() {
     _confirm_configuration
     _propagate_rc $? || return $?
 
-    _info_long "Proceeding with disk partitioning"
+    _info "Proceeding with disk partitioning"
 
     # Partition root device
     _info "Partitioning root device: $ROOT_DEVICE"
@@ -803,7 +827,7 @@ _setup_disk_configuration() {
     _resolve_partition_paths
     _propagate_rc $? "Failed to resolve partition paths" || return $?
 
-    _info_long "Disk configuration and partitioning completed successfully"
+    _info "Disk configuration and partitioning completed successfully"
 
     return 0
 }
@@ -822,11 +846,11 @@ _encrypt_and_open_partition() {
     local partition=$1
     local mapper_name=$2
 
-    echo ""
-    echo "WARNING: LUKS formatting will erase all data on $partition"
-    echo "You will be prompted to enter and verify a passphrase."
-    echo "Save this passphrase somewhere safe — you need it to boot."
-    echo ""
+    _out ""
+    _warn "WARNING: LUKS formatting will erase all data on $partition"
+    _warn "You will be prompted to enter and verify a passphrase."
+    _warn "Save this passphrase somewhere safe — you need it to boot."
+    _out ""
 
     if ! _prompt_yes_no "Format $partition with LUKS2 encryption? (y/n): "; then
         _info "Encryption cancelled for $partition"
@@ -834,12 +858,14 @@ _encrypt_and_open_partition() {
     fi
 
     _info "Formatting $partition with LUKS2..."
+    _log_interactive cryptsetup luksFormat -v -s 512 -h sha512 --type luks2 "$partition"
     cryptsetup luksFormat -v -s 512 -h sha512 --type luks2 "$partition" || {
         _error "luksFormat failed for $partition"
         return 1
     }
 
     _info "Opening $partition as $mapper_name..."
+    _log_interactive cryptsetup open "$partition" "$mapper_name"
     cryptsetup open "$partition" "$mapper_name" || {
         _error "Failed to open $partition as $mapper_name"
         return 1
@@ -863,7 +889,7 @@ _setup_encryption() {
     _encrypt_and_open_partition "$HOME_PARTITION" luks_home
     _propagate_rc $? || return $?
 
-    _info_long "Encryption completed"
+    _info "Encryption completed"
     _info "Root PV: $(_get_pv_device root)"
     _info "Home PV: $(_get_pv_device home)"
 
@@ -938,19 +964,16 @@ _activate_volume_groups() {
 }
 
 _print_lvm_summary() {
-    echo ""
-    echo "=========================================="
-    echo "LVM Summary"
-    echo "=========================================="
-    vgs
-    echo ""
-    lvs
-    echo "=========================================="
-    echo ""
+    _section "LVM Summary"
+    _log_cmd_output vgs
+    _out ""
+    _log_cmd_output lvs
+    _out "=========================================="
+    _out ""
 }
 
 _setup_lvm() {
-    _info_long "Setting up LVM volume groups"
+    _info "Setting up LVM volume groups"
 
     _setup_root_volume_group
     _propagate_rc $? "Failed to set up root volume group" || return $?
@@ -962,7 +985,7 @@ _setup_lvm() {
     _propagate_rc $? || return $?
     _print_lvm_summary
 
-    _info_long "LVM setup completed"
+    _info "LVM setup completed"
     return 0
 }
 
@@ -973,12 +996,9 @@ _setup_lvm() {
 _prompt_install_username() {
     local username
 
-    echo ""
-    echo "=========================================="
-    echo "Installation Username"
-    echo "=========================================="
-    echo "Used for the home Media subvolume mount path."
-    echo ""
+    _section "Installation Username"
+    _out "Used for the home Media subvolume mount path."
+    _out ""
 
     while true; do
         read -p "Enter planned username: " username
@@ -994,18 +1014,18 @@ _prompt_install_username() {
 }
 
 _prompt_filesystem_confirmation() {
-    echo ""
-    echo "WARNING: This will format filesystems on the following devices:"
-    echo "  EFI:  $EFI_PARTITION (vfat)"
-    echo "  Boot: $BOOT_PARTITION (ext4)"
-    echo "  Root: $ROOT_LV (btrfs)"
-    echo "  Home: $HOME_LV (btrfs)"
+    _out ""
+    _warn "WARNING: This will format filesystems on the following devices:"
+    _warn "  EFI:  $EFI_PARTITION (vfat)"
+    _warn "  Boot: $BOOT_PARTITION (ext4)"
+    _warn "  Root: $ROOT_LV (btrfs)"
+    _warn "  Home: $HOME_LV (btrfs)"
     if [ -n "$(_get_swap_device)" ]; then
-        echo "  Swap: $(_get_swap_device)"
+        _warn "  Swap: $(_get_swap_device)"
     fi
-    echo ""
-    echo "All existing data on these volumes will be permanently lost."
-    echo ""
+    _out ""
+    _warn "All existing data on these volumes will be permanently lost."
+    _out ""
 
     if ! _prompt_yes_no "Create filesystems on these devices? (y/n): "; then
         _info "Filesystem creation cancelled by user"
@@ -1095,13 +1115,10 @@ _mount_installation() {
 }
 
 _print_mount_summary() {
-    echo ""
-    echo "=========================================="
-    echo "Mount Summary"
-    echo "=========================================="
-    findmnt -R "$MNT"
-    echo "=========================================="
-    echo ""
+    _section "Mount Summary"
+    _log_cmd_output findmnt -R "$MNT"
+    _out "=========================================="
+    _out ""
 }
 
 _setup_filesystems() {
@@ -1114,7 +1131,7 @@ _setup_filesystems() {
     _prompt_filesystem_confirmation
     _propagate_rc $? || return $?
 
-    _info_long "Creating filesystems"
+    _info "Creating filesystems"
 
     _format_filesystems
     _propagate_rc $? "Failed to create filesystems" || return $?
@@ -1127,7 +1144,7 @@ _setup_filesystems() {
 
     _print_mount_summary
 
-    _info_long "Filesystem setup completed"
+    _info "Filesystem setup completed"
     return 0
 }
 
@@ -1136,7 +1153,7 @@ _setup_filesystems() {
 # ============================================================================
 
 _chroot_run() {
-    _log "RUN" "arch-chroot ${MNT}: $*"
+    _log "RUN" "arch-chroot ${MNT} $*"
     arch-chroot "$MNT" "$@"
 }
 
@@ -1157,7 +1174,7 @@ _configure_live_mirrors() {
 }
 
 _pacstrap_base_packages() {
-    _info_long "Installing base packages with pacstrap (this may take a while)..."
+    _info "Installing base packages with pacstrap (this may take a while)..."
     _echo_run pacstrap "$MNT" base base-devel || return 1
 }
 
@@ -1179,7 +1196,7 @@ _setup_bootstrap() {
     _generate_fstab
     _propagate_rc $? || return $?
 
-    _info_long "Bootstrap completed"
+    _info "Bootstrap completed"
     return 0
 }
 
@@ -1213,7 +1230,7 @@ _configure_pacman_chroot() {
 }
 
 _install_system_packages() {
-    _info_long "Installing kernel, firmware, and system packages..."
+    _info "Installing kernel, firmware, and system packages..."
 
     _chroot_run pacman -S --noconfirm \
         neovim \
@@ -1269,7 +1286,9 @@ _configure_encryption_boot() {
     _chroot_run chmod 000 /etc/luks_keys/root_keyfile.bin /etc/luks_keys/home_keyfile.bin || return 1
 
     _info "Adding LUKS keyfiles to encrypted partitions..."
+    _log_interactive cryptsetup luksAddKey "$ROOT_PARTITION" "${MNT}/etc/luks_keys/root_keyfile.bin"
     cryptsetup luksAddKey "$ROOT_PARTITION" "${MNT}/etc/luks_keys/root_keyfile.bin" || return 1
+    _log_interactive cryptsetup luksAddKey "$HOME_PARTITION" "${MNT}/etc/luks_keys/home_keyfile.bin"
     cryptsetup luksAddKey "$HOME_PARTITION" "${MNT}/etc/luks_keys/home_keyfile.bin" || return 1
 
     grub_cmdline="loglevel=3 quiet root=UUID=${root_lv_uuid} cryptdevice=UUID=${root_part_uuid}:luks_root"
@@ -1289,7 +1308,7 @@ _configure_encryption_boot() {
 }
 
 _generate_boot_images() {
-    _info_long "Generating GRUB config and initramfs images..."
+    _info "Generating GRUB config and initramfs images..."
 
     _chroot_run grub-mkconfig -o /boot/grub/grub.cfg || return 1
     _chroot_run grub-mkconfig -o /boot/efi/EFI/arch/grub.cfg || return 1
@@ -1299,7 +1318,7 @@ _generate_boot_images() {
 }
 
 _setup_chroot_boot() {
-    _info_long "Configuring bootable system inside chroot"
+    _info "Configuring bootable system inside chroot"
 
     _configure_pacman_chroot
     _propagate_rc $? || return $?
@@ -1321,7 +1340,7 @@ _setup_chroot_boot() {
     _generate_boot_images
     _propagate_rc $? "Failed to generate boot images" || return $?
 
-    _info_long "Boot setup completed"
+    _info "Boot setup completed"
     return 0
 }
 
@@ -1330,10 +1349,7 @@ _setup_chroot_boot() {
 # ============================================================================
 
 _prompt_hostname() {
-    echo ""
-    echo "=========================================="
-    echo "System Hostname"
-    echo "=========================================="
+    _section "System Hostname"
 
     while true; do
         read -p "Enter hostname: " INSTALL_HOSTNAME
@@ -1350,13 +1366,10 @@ _prompt_hostname() {
 _prompt_timezone() {
     local timezone
 
-    echo ""
-    echo "=========================================="
-    echo "Timezone"
-    echo "=========================================="
-    echo "Default: $TIMEZONE"
-    echo "Format: Region/City (e.g. Europe/Helsinki)"
-    echo ""
+    _section "Timezone"
+    _out "Default: $TIMEZONE"
+    _out "Format: Region/City (e.g. Europe/Helsinki)"
+    _out ""
 
     while true; do
         read -p "Enter timezone [${TIMEZONE}]: " timezone
@@ -1442,7 +1455,7 @@ _setup_localization() {
     _prompt_timezone
     _propagate_rc $? || return $?
 
-    _info_long "Configuring localization"
+    _info "Configuring localization"
 
     _configure_timezone
     _propagate_rc $? || return $?
@@ -1456,7 +1469,7 @@ _setup_localization() {
     _configure_keyboard
     _propagate_rc $? || return $?
 
-    _info_long "Localization completed"
+    _info "Localization completed"
     return 0
 }
 
@@ -1466,12 +1479,10 @@ _configure_hostname() {
 }
 
 _setup_root_password() {
-    echo ""
-    echo "=========================================="
-    echo "Root Password"
-    echo "=========================================="
+    _section "Root Password"
     _info "Set password for root user..."
 
+    _log_interactive arch-chroot "$MNT" passwd root
     arch-chroot "$MNT" passwd root || return 1
 }
 
@@ -1505,12 +1516,10 @@ _setup_admin_user() {
     _chroot_run rm -rf "/home/${INSTALL_USERNAME}" || return 1
     _chroot_run useradd -m -G wheel -s /bin/bash "$INSTALL_USERNAME" || return 1
 
-    echo ""
-    echo "=========================================="
-    echo "User Password: $INSTALL_USERNAME"
-    echo "=========================================="
+    _section "User Password: $INSTALL_USERNAME"
     _info "Set password for $INSTALL_USERNAME..."
 
+    _log_interactive arch-chroot "$MNT" passwd "$INSTALL_USERNAME"
     arch-chroot "$MNT" passwd "$INSTALL_USERNAME" || return 1
 
     _enable_wheel_sudo || return 1
@@ -1520,7 +1529,7 @@ _setup_admin_user() {
 }
 
 _setup_users() {
-    _info_long "Configuring hostname and users"
+    _info "Configuring hostname and users"
 
     _configure_hostname
     _propagate_rc $? || return $?
@@ -1531,7 +1540,7 @@ _setup_users() {
     _setup_admin_user
     _propagate_rc $? "Failed to create admin user" || return $?
 
-    _info_long "User setup completed"
+    _info "User setup completed"
     return 0
 }
 
@@ -1566,11 +1575,11 @@ _detect_cpu_microcode_package() {
 _prompt_cpu_microcode_package() {
     local choice
 
-    echo ""
-    echo "CPU vendor not detected automatically."
-    echo "[1] amd-ucode"
-    echo "[2] intel-ucode"
-    echo "[3] Skip microcode"
+    _out ""
+    _out "CPU vendor not detected automatically."
+    _out "[1] amd-ucode"
+    _out "[2] intel-ucode"
+    _out "[3] Skip microcode"
 
     while true; do
         read -p "Select microcode package [1-3]: " choice
@@ -1605,13 +1614,13 @@ _detect_gpu_packages() {
 _prompt_gpu_packages() {
     local choice
 
-    echo ""
-    echo "GPU not detected automatically."
-    echo "[1] AMD"
-    echo "[2] Intel"
-    echo "[3] Nvidia"
-    echo "[4] VMware"
-    echo "[5] Skip GPU drivers"
+    _out ""
+    _out "GPU not detected automatically."
+    _out "[1] AMD"
+    _out "[2] Intel"
+    _out "[3] Nvidia"
+    _out "[4] VMware"
+    _out "[5] Skip GPU drivers"
 
     while true; do
         read -p "Select GPU driver set [1-5]: " choice
@@ -1642,7 +1651,7 @@ EOF
 _install_desktop_packages() {
     local microcode_pkg gpu_pkgs
 
-    _info_long "Installing desktop environment and services..."
+    _info "Installing desktop environment and services..."
 
     _chroot_run pacman -S --noconfirm \
         networkmanager bluez bluez-utils reflector || return 1
@@ -1697,26 +1706,23 @@ _setup_desktop() {
     _generate_boot_images
     _propagate_rc $? "Failed to regenerate boot images" || return $?
 
-    _info_long "Desktop setup completed"
+    _info "Desktop setup completed"
     return 0
 }
 
 _finish_installation() {
-    echo ""
-    echo "=========================================="
-    echo "Installation Complete"
-    echo "=========================================="
-    echo "Hostname:  $INSTALL_HOSTNAME"
-    echo "User:      $INSTALL_USERNAME"
-    echo "Timezone:  $TIMEZONE"
-    echo ""
-    echo "Post-install (after reboot):"
-    echo "  cd ~/Workspace/linux-setup && ./setup arch"
-    echo ""
-    echo "See: instructions/install/arch-install.md (Post Arch install steps)"
-    echo "     and instructions/post-install/ (App configuration steps)"
-    echo "=========================================="
-    echo ""
+    _section "Installation Complete"
+    _out "Hostname:  $INSTALL_HOSTNAME"
+    _out "User:      $INSTALL_USERNAME"
+    _out "Timezone:  $TIMEZONE"
+    _out ""
+    _out "Post-install (after reboot):"
+    _out "  cd ~/Workspace/linux-setup && ./setup arch"
+    _out ""
+    _out "See: instructions/install/arch-install.md (Post install steps)"
+    _out "     and instructions/post-install/ (App configuration steps)"
+    _out "=========================================="
+    _out ""
 
     if ! _prompt_yes_no "Unmount ${MNT} and reboot now? (y/n): "; then
         _info "Skipping reboot. Remember to umount -R ${MNT} before rebooting manually."
@@ -1746,7 +1752,8 @@ _finish_installation() {
 # ============================================================================
 
 main() {
-    _info_long "Arch Linux Installation Script"
+    _info "Arch Linux Installation Script"
+    _info "Logging to: ${LOGFILE}"
 
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
@@ -1762,7 +1769,7 @@ main() {
     _run_phase "Disk setup" _setup_disk_configuration
     _exit_on_rc $?
 
-    echo ""
+    _out ""
     if _prompt_yes_no "Encrypt root and home partitions with LUKS2? (y/n): "; then
         ENCRYPTION_ENABLED=true
         _run_phase "Encryption setup" _setup_encryption
