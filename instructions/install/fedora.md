@@ -1,28 +1,41 @@
 # Fedora manual install guide
 
-For installing Fedora with my personal preferences via the Anaconda installer.
+For installing Fedora with my personal preferences via the Anaconda Web UI installer.
 
-Target: Fedora 42+ amd64, **Fedora KDE Plasma Spin** ISO. Steps follow the order shown in the Anaconda Web UI installer.
+Target: **Fedora 44+** amd64, **Fedora KDE Plasma Spin** ISO. The installer is a four-step linear wizard; user account, timezone, and hostname are configured on first boot via **Plasma Setup** (not in Anaconda).
+
+## Installer flow (Fedora 44 Web UI)
+
+| Step | Screen | What you configure |
+|------|--------|-------------------|
+| 1 | **Welcome** | Language, keyboard layout |
+| 2 | **Installation method** | Destination disk, install method (see below) |
+| 2b | **Storage editor** *(optional)* | ⋮ menu → **Launch storage editor** — manual partitioning via Cockpit Storage |
+| 3 | **Storage configuration** | **Encrypt my data**, LUKS passphrase, keyboard layout at boot |
+| 4 | **Review and install** | Confirm layout, start install |
+
+**Installation method** options (under *How would you like to install?*):
+
+- **Share disk with other operating systems** — dual boot; uses unallocated space or reclaim dialog
+- **Use entire disk** — wipe selected disk, automatic btrfs layout
+- **Mount point assignment** — assign existing partitions to mount points (`/`, `/boot`, `/boot/efi`, …)
+
+If Fedora is already on the disk, a **Reinstall Fedora** option may appear at the top (fresh install, keeps `/home` data).
+
+> **Dual boot + small ESP:** Anaconda warns if `/boot/efi` is under **500 MiB**. Windows often ships a 100–260 MiB ESP; Fedora can reuse it, but expanding the ESP in Windows/GParted before install avoids boot issues.
+
+Steps **not** in the Fedora 44 installer (moved to first boot):
+
+- Time & date / timezone
+- Hostname
+- User account creation
+- Software / desktop selection (KDE Plasma is baked into the Spin ISO)
 
 ## Boot installer
 
 1. Boot the Fedora KDE Plasma Spin live image (UEFI)
 2. Choose **Try Fedora** (live session)
-3. Launch **Install to Hard Drive** from the desktop
-
-## Welcome
-
-1. Language → **English (United States)**
-2. Continue
-
-## Keyboard
-
-- Layout → **Finnish**
-
-## Time & date
-
-1. Region → **Europe/Helsinki**
-2. Enable **Network Time** (uses `systemd-timesyncd`)
+3. Launch **Install to Hard Drive** from the desktop (or the welcome dialog)
 
 ## Windows dual boot — prepare before partitioning
 
@@ -54,31 +67,59 @@ Install **Windows first**, then Fedora. Windows overwrites the shared EFI boot c
 ### Firmware
 
 - UEFI boot mode (not legacy BIOS)
+- **SATA mode / storage controller** → **AHCI** or **NVMe** (not **RAID** / **Intel RST**). Linux cannot see Windows volumes on an RST/RAID array without dmraid setup; switch before installing either OS when possible
 - **Secure Boot** can stay enabled for Fedora; disable only if install media or NVIDIA drivers fail to boot
 
-## Installation destination
+## 1. Welcome
 
-Do **not** choose **Use entire disk** when dual-booting. That wipes Windows.
+1. Language → **English (United States)**
+2. Keyboard layout → **Finnish**
+3. Continue
 
-### Single disk, Linux only
+## 2. Installation method
+
+Select **Destination** (target disk). On multi-disk systems, use **Change destination** if the default is wrong.
+
+Do **not** choose **Use entire disk** when dual-booting — that wipes Windows.
+
+### Linux only — whole disk
 
 1. Select the target disk
-2. **Use entire disk** — acceptable only when the disk has no data to keep
-3. **Encrypt my data** → enable for LUKS (recommended); set passphrase when prompted
-4. Accept the automatic btrfs layout Anaconda proposes
+2. **How would you like to install?** → **Use entire disk**
+3. Continue to [Storage configuration](#3-storage-configuration)
 
-### Single disk, Windows dual boot
+Anaconda creates a default btrfs layout (approximate):
+
+| Partition | Size | FS | Mount |
+|-----------|------|----|-------|
+| EFI System Partition | ~629 MiB | FAT | `/boot/efi` |
+| `/boot` | ~2 GiB | ext4 | `/boot` |
+| remainder | rest | btrfs (subvols `root`, `home`) | `/`, `/home` |
+
+### Dual boot — share disk with Windows
 
 1. Select the disk that contains Windows and the unallocated space
-2. Choose **Mount point assignment** (or open the storage editor — see custom layouts below)
-3. Assign Fedora to **unallocated space only**
-4. **Reuse the existing EFI System Partition** — mount `/boot/efi`, **do not reformat**
-5. Do **not** delete or reformat Windows (`ntfs`) partitions
-6. **Encrypt my data** → optional; encrypts the Fedora btrfs volume, not Windows
+2. **How would you like to install?** → **Share disk with other operating systems**
+   - Anaconda installs into **unallocated space** only
+   - If no free space exists, the **reclaim** dialog can delete or resize supported partitions (NTFS/BitLocker volumes must be prepared in Windows first)
+3. **Reuse the existing EFI System Partition** — mount `/boot/efi`, **do not reformat**
+4. Do **not** delete or reformat Windows (`ntfs`) partitions
+5. Continue to [Storage configuration](#3-storage-configuration)
 
-### Storage editor (custom layouts)
+### Mount point assignment (pre-partitioned or custom reuse)
 
-Open the **⋮** menu → **Launch storage editor** for manual control.
+Use when partitions are already laid out (external tool, previous Linux install, or after using the storage editor):
+
+1. **How would you like to install?** → **Mount point assignment**
+2. Assign mandatory mount points starting with **`/`** (root), then **`/boot`**, then **`/boot/efi`**
+3. Add optional mount points (`/home`, swap, …) as needed
+4. Continue to [Storage configuration](#3-storage-configuration)
+
+### Storage editor (manual layouts)
+
+Open **⋮** (top-right) → **Launch storage editor** from the installation method / storage screen.
+
+This launches **Cockpit Storage**. Changes apply **immediately** on disk (unlike the main Anaconda flow, which only commits on **Review and install**).
 
 All layouts assume UEFI.
 
@@ -95,7 +136,8 @@ Fedora creates btrfs subvolumes `root` and `home` on one volume. Swap uses **zra
    - **Remaining space** — btrfs; add subvolumes:
      - `root` → mount `/`
      - `home` → mount `/home`
-3. Enable **LUKS2** on the btrfs partition if encrypting
+3. Return to installation; Anaconda switches to **Use configured storage**
+4. Enable **LUKS2** on the btrfs partition in [Storage configuration](#3-storage-configuration) if encrypting
 
 **Dual boot**
 
@@ -104,7 +146,7 @@ Fedora creates btrfs subvolumes `root` and `home` on one volume. Swap uses **zra
    - **`/boot`** — 2 GiB, ext4 (Fedora keeps `/boot` unencrypted)
    - **Remaining unallocated** — btrfs + subvolumes `root` (`/`) and `home` (`/home`)
 3. Mount the **existing ESP** at `/boot/efi` without reformatting
-4. Enable **LUKS2** on the btrfs partition if encrypting
+4. Return to installation; enable **LUKS2** on the btrfs partition if encrypting
 
 **Swap (btrfs default — zram)**
 
@@ -121,7 +163,7 @@ Add a swap partition in unallocated/custom layout:
 |-----|---------------------|
 | Any | **≥ RAM** (e.g. 32 GiB RAM → 32 GiB swap) |
 
-Place it in unallocated space or as a logical partition. Fedora installer can format it as `linux-swap`.
+Place it in unallocated space or as a logical partition. Format as `linux-swap`.
 
 #### Option B — ext4 (legacy / compatibility)
 
@@ -134,7 +176,7 @@ Use when you prefer ext4 over btrfs.
    - `/` — 50–100 GiB, ext4
    - `/home` — remaining space, ext4
    - `swap` — see swap table above (optional with zram; required for hibernate)
-3. Enable **LUKS2** on `/` and `/home` if encrypting (Fedora encrypts per-volume in custom mode)
+3. Return to installation; enable **LUKS2** on `/` and `/home` if encrypting (Fedora encrypts per-volume in custom mode)
 
 **Swap size (ext4 manual)**
 
@@ -145,7 +187,7 @@ Use when you prefer ext4 over btrfs.
 
 #### Option C — multiple disks
 
-Use storage editor, **Custom** scheme.
+Use storage editor on each disk as needed.
 
 | Disk | Role | Layout |
 |------|------|--------|
@@ -155,46 +197,35 @@ Use storage editor, **Custom** scheme.
 
 > Multi-disk layouts are not fully tested in this repo. Verify `/etc/fstab` and `/etc/crypttab` after install.
 
-### Confirm storage
+## 3. Storage configuration
 
-1. Review the summary — confirm Windows partitions show **preserve**, not **reformat**
-2. Apply changes and enter LUKS passphrase if encryption is enabled
+1. **Encrypt my data** — enable for LUKS (recommended on Linux-only installs; optional on dual boot — encrypts Fedora volumes only, not Windows)
+2. If enabled:
+   - Set **passphrase**
+   - Choose **keyboard layout during boot** (LUKS prompt may default to US layout even if system keyboard is Finnish)
+3. Continue
 
-## Software selection
+## 4. Review and install
 
-On the KDE Spin, the environment defaults to **KDE Plasma Workstation**. Verify it is selected.
+1. Review summary — language, keyboard, disk, partition layout
+2. On dual boot: confirm Windows partitions show **preserve**, not **reformat**
+3. **Begin installation** (button text may read **Erase data and install** on whole-disk installs)
+4. Wait for completion
+5. Reboot and remove installation media
 
-Optional add-ons (enable if wanted):
+## First boot — Plasma Setup
 
-- **Development Tools** — compilers, headers
-- **Third-party repositories** are configured post-install via RPM Fusion (not in base installer)
+Fedora KDE defers account and system settings to **Plasma Setup** on first boot (replaces the old Anaconda user/timezone steps).
 
-## User creation
+Complete the wizard:
 
-Fedora Workstation/KDE may defer account creation to **Initial Setup** on first boot. If the installer offers user creation:
-
-1. Create your user account
-2. Set a strong password
-3. **Make this user administrator** (adds to `wheel` group for `sudo`)
+1. **Language** and **keyboard** — verify **Finnish** if needed
+2. **Timezone** → **Europe/Helsinki**
+3. **Network** — connect if prompted (optional for offline install)
+4. **User account** — create user, strong password, **administrator** / `wheel` for `sudo`
+5. Remaining privacy / welcome screens → your preference
 
 Root has no password by default; use `sudo` for admin tasks.
-
-## Review and install
-
-1. Review summary (language, keyboard, timezone, disk layout, software)
-2. **Begin installation**
-3. Wait for completion
-4. Reboot and remove installation media
-
-## First boot
-
-### Initial Setup (if shown)
-
-Complete the Fedora/KDE first-login wizard:
-
-1. Create user/password (if not done in installer)
-2. Privacy settings → your preference
-3. Skip online accounts unless wanted
 
 ### LUKS passphrase
 
@@ -217,7 +248,7 @@ sudo localectl set-x11-keymap fi pc106 winkeys
 
 ```bash
 sudo dnf upgrade --refresh -y
-systemctl status systemd-timesyncd
+timedatectl status    # confirm Europe/Helsinki, NTP active
 ```
 
 ### Windows dual boot — verify GRUB
