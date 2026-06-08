@@ -1,100 +1,24 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
 
-source vars/fedora-vars
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+init_logging "setup"
+
+source "${REPO_ROOT}/vars/fedora-vars"
 USERNAME=$1
 SETUP_UFW=true
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FEDORA_VERSION="$(rpm -E %fedora 2>/dev/null || echo "")"
-
-exec 1> >(tee -a "$LOGFILE") 2>&1
-
-_log() {
-    local level="$1" msg="$2"
-    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg"
-}
-
-_info() {
-    _log "INFO" "$*"
-    sleep 2
-}
-
-_info_long() {
-    _log "INFO" "$*"
-    sleep 3
-}
-
-_error() {
-    _log "ERROR" "$*"
-    sleep 3
-}
-
-_warn() {
-    _log "WARN" "$*"
-}
-
-_echo_run() {
-    _log "RUN" "$*"
-    "$@" || { _error "Command failed: $*"; return 1; }
-}
 
 _dnf() {
     sudo dnf "$@"
-}
-
-_to_ssh_url() {
-    local url=$1
-    echo "$url" | sed 's|https://github\.com/|git@github.com:|'
-}
-
-_set_ssh_remote() {
-    local repo_path=$1
-    cd "$repo_path" || return 1
-    local https_url=$(git config --get remote.origin.url)
-    local ssh_url=$(_to_ssh_url "$https_url")
-    if [ "$https_url" != "$ssh_url" ]; then
-        _echo_run git remote set-url origin "$ssh_url"
-    fi
-    cd - > /dev/null || return 1
-}
-
-_check_firewall_service() {
-    command -v "$2" &> /dev/null && systemctl is-active --quiet "$1" && {
-        SETUP_UFW=false
-        _log "INFO" "Service $1 already installed/enabled. Check rules manually."; sleep 6
-    }
-}
-
-_setup_git_config() {
-    local config_dir="$HOME/.config/git"
-    local config_file="$config_dir/config.local"
-
-    [ -d "$config_dir" ] || _echo_run mkdir -p "$config_dir"
-
-    if [ -f "$config_file" ]; then
-        _info "Git config already exists at $config_file"
-        return 0
-    fi
-
-    _info "Enter your Git user name or real name (or press Enter to skip):"
-    read -p "  → " git_name
-
-    if [ -z "$git_name" ]; then
-        _warn "Skipped git config setup"
-        return 0
-    fi
-
-    _info "Enter your Git email:"
-    read -p "  → " git_email
-
-    _echo_run mkdir -p "$config_dir"
-    cat > "$config_file" << EOF
-[user]
-    name = $git_name
-    email = $git_email
-EOF
-    _info "Git user config created at $config_file"
 }
 
 _pkg_is_installed() {
@@ -114,7 +38,7 @@ _install_packages() {
     local category="$1"
     shift
     local packages=("$@")
-    [ -n "$category" ] && [ "$category" != "." ] && _info_long "Installing $category..."
+    [ -n "$category" ] && [ "$category" != "." ] && _info "Installing $category..."
     for pkg in "${packages[@]}"; do
         [ -z "$pkg" ] && continue
         [[ "$pkg" == \#* ]] && continue
@@ -122,8 +46,7 @@ _install_packages() {
             _info "Package $pkg already installed"
             continue
         }
-        echo -e "\n[SETUP_INFO] : Installing $pkg\n"
-        sleep 2
+        _out "Installing $pkg"
         _echo_run _dnf install -y "$pkg"
     done
 }
@@ -139,7 +62,7 @@ _install_flatpak_apps() {
         return 0
     }
 
-    _info_long "Installing $category..."
+    _info "Installing $category..."
     _echo_run flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
     for app in "${apps[@]}"; do
         [ -z "$app" ] && continue
@@ -148,8 +71,7 @@ _install_flatpak_apps() {
             _info "Flatpak $app already installed"
             continue
         }
-        echo -e "\n[SETUP_INFO] : Installing flatpak $app\n"
-        sleep 2
+        _out "Installing flatpak $app"
         _echo_run flatpak install -y flathub "$app"
     done
 }
@@ -165,7 +87,7 @@ _enable_rpmfusion() {
         return 0
     fi
 
-    _info_long "Enabling RPM Fusion free and nonfree repositories..."
+    _info "Enabling RPM Fusion free and nonfree repositories..."
     _echo_run _dnf install -y \
         "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VERSION}.noarch.rpm" \
         "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VERSION}.noarch.rpm"
@@ -177,7 +99,7 @@ _setup_nordvpn() {
         return 0
     fi
 
-    _info_long "Setting up NordVPN..."
+    _info "Setting up NordVPN..."
     _echo_run sudo rpm --import https://repo.nordvpn.com/gpg/nordvpn_public.asc
     _echo_run sudo tee /etc/yum.repos.d/nordvpn.repo > /dev/null << 'EOF'
 [nordvpn]
@@ -216,31 +138,31 @@ _setup_systemd_resolved() {
 }
 
 main() {
-    _info_long "Setting up environment for a Fedora-based distribution."
+    _info "Setting up environment for a Fedora-based distribution."
 
     _info "Converting linux-setup repository to SSH..."
-    if [ -d "$SCRIPT_DIR/.git" ]; then
-        _set_ssh_remote "$SCRIPT_DIR"
+    if [ -d "${REPO_ROOT}/.git" ]; then
+        _set_ssh_remote "${REPO_ROOT}"
     fi
 
-    _info_long "Updating package lists and upgrading system..."
+    _info "Updating package lists and upgrading system..."
     _echo_run _dnf upgrade --refresh -y
 
-    _info_long "Installing dnf tools..."
+    _info "Installing dnf tools..."
     _install_packages "dnf tools" "${dnf_tools[@]}"
 
     _enable_rpmfusion
 
-    _info_long "Installing dnf packages..."
+    _info "Installing dnf packages..."
     _install_packages "dnf packages" "${dnf_packages[@]}"
 
-    _info_long "Checking if there's an existing firewall service running..."
+    _info "Checking if there's an existing firewall service running..."
     _check_firewall_service "ufw" "ufw"
     _check_firewall_service "nftables" "nft"
     _check_firewall_service "firewalld" "firewall-cmd"
     if $SETUP_UFW; then
         _info "No existing firewall service running."
-        _info_long "Installing ufw and setting up firewall..."
+        _info "Installing ufw and setting up firewall..."
         _install_pkg "ufw"
         _info "Enabling firewall tool ufw..."
         _echo_run sudo systemctl enable ufw
@@ -248,7 +170,7 @@ main() {
         _echo_run sudo systemctl start ufw
     fi
 
-    _info_long "Adding workspace and dotfiles..."
+    _info "Adding workspace and dotfiles..."
     [ -d "$HOME/Workspace" ] || {
         _info "Creating workspace directory as ~/Workspace..."
         _echo_run mkdir "$HOME/Workspace"
@@ -259,35 +181,35 @@ main() {
         _set_ssh_remote "$HOME/Workspace/dotfiles"
     }
 
-    _info_long "Moving to dotfiles directory..."
+    _info "Moving to dotfiles directory..."
     _echo_run cd "$HOME/Workspace/dotfiles"
 
-    _info_long "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
+    _info "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
     _echo_run just install
 
     _info "Setting up git user configuration..."
     _setup_git_config
 
-    _info_long "Installing dnf KDE packages..."
+    _info "Installing dnf KDE packages..."
     _install_packages "dnf kde" "${dnf_kde[@]}"
-    _info_long "Installing dnf apps..."
+    _info "Installing dnf apps..."
     _install_packages "dnf apps" "${dnf_apps[@]}"
-    _info_long "Installing dnf gaming packages..."
+    _info "Installing dnf gaming packages..."
     _install_packages "dnf gaming" "${dnf_gaming[@]}"
-    _info_long "Installing RPM Fusion free packages..."
+    _info "Installing RPM Fusion free packages..."
     _install_packages "rpmfusion free" "${rpmfusion_free_packages[@]}"
-    _info_long "Installing RPM Fusion nonfree packages..."
+    _info "Installing RPM Fusion nonfree packages..."
     _install_packages "rpmfusion nonfree" "${rpmfusion_nonfree_packages[@]}"
     _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
 
     if command -v steamtinkerlaunch &> /dev/null; then
-        _info_long "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
         _echo_run steamtinkerlaunch compat add
     else
         _warn "steamtinkerlaunch not installed; skip compat add (enable in flatpak_apps or install manually)"
     fi
 
-    _info_long "Installing pip/pipx and extra Python CLI tools..."
+    _info "Installing pip/pipx and extra Python CLI tools..."
     _install_pkg "python3-pip"
     _install_pkg "pipx"
     for tool in "${pip_packages[@]}"; do
@@ -298,7 +220,7 @@ main() {
         _echo_run pipx install "$tool"
     done
 
-    _info_long "Installing pyenv for Python version management..."
+    _info "Installing pyenv for Python version management..."
     if ! command -v pyenv &> /dev/null; then
         _info "Cloning pyenv..."
         _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
@@ -306,15 +228,15 @@ main() {
         _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
         _info "Pyenv installed to ~/.pyenv"
         _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-        echo '  export PYENV_ROOT="$HOME/.pyenv"'
-        echo '  export PATH="$PYENV_ROOT/bin:$PATH"'
-        echo '  eval "$(pyenv init --path)"'
-        echo '  eval "$(pyenv init -)"'
+        _out '  export PYENV_ROOT="$HOME/.pyenv"'
+        _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
+        _out '  eval "$(pyenv init --path)"'
+        _out '  eval "$(pyenv init -)"'
     else
         _info "Pyenv already installed"
     fi
 
-    _info_long "Installing tfswitch for Terraform version management..."
+    _info "Installing tfswitch for Terraform version management..."
     if ! command -v tfswitch &> /dev/null; then
         _info "Downloading tfswitch..."
         _echo_run mkdir -p "$HOME/.local/bin"
@@ -325,25 +247,25 @@ main() {
         _info "tfswitch already installed"
     fi
 
-    _info_long "Installing nvm for Node version management..."
+    _info "Installing nvm for Node version management..."
     if ! command -v nvm &> /dev/null; then
         _info "Downloading and installing nvm..."
         _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
         _info "nvm installed"
         _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-        echo '  export NVM_DIR="$HOME/.nvm"'
-        echo '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-        echo '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+        _out '  export NVM_DIR="$HOME/.nvm"'
+        _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+        _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
     else
         _info "nvm already installed"
     fi
 
-    _info_long "Doing initial setup for systemd-resolved (for DNS)..."
+    _info "Doing initial setup for systemd-resolved (for DNS)..."
     _setup_systemd_resolved
 
     _setup_nordvpn
 
-    _log "INFO" "Setup completed. Log saved to: $LOGFILE"
+    _info "Setup completed. Log saved to: ${LOGFILE}"
 }
 
 main "$@" || return 1

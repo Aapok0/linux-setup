@@ -7,13 +7,10 @@
 
 set -uo pipefail
 
-# Repo root (parent of scripts/) — absolute path, independent of cwd
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
-LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch.log"
-
-mkdir -p "${REPO_ROOT}/logs"
-exec 1> >(tee -a "$LOGFILE") 2>&1
+# shellcheck source=lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+init_logging "install-arch"
 
 # Configuration variables
 ROOT_DEVICE=""
@@ -67,110 +64,6 @@ BOOT_SIZE=4
 
 # Device list (populated by _list_available_devices)
 declare -a AVAILABLE_DEVICES
-
-# ============================================================================
-# Logging and output functions
-# ============================================================================
-
-_log() {
-    local level="$1"
-    shift
-    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*" >&2
-}
-
-_out() {
-    _log "OUT" "$@"
-}
-
-_section() {
-    _out "=========================================="
-    _out "$1"
-    _out "=========================================="
-}
-
-_info() {
-    _log "INFO" "$@"
-}
-
-_error() {
-    _log "ERROR" "$@"
-}
-
-_warn() {
-    _log "WARN" "$@"
-}
-
-_log_cmd_output() {
-    local output rc=0
-
-    _log "RUN" "$*"
-    output=$("$@" 2>&1) || rc=$?
-
-    if [ -n "$output" ]; then
-        while IFS= read -r line; do
-            _log "OUT" "$line"
-        done <<< "$output"
-    fi
-
-    return "$rc"
-}
-
-_echo_run() {
-    _log "RUN" "$*"
-    "$@" || {
-        _error "Command failed (exit $?): $*"
-        return 1
-    }
-}
-
-_log_interactive() {
-    _log "RUN" "$* (interactive)"
-}
-
-_propagate_rc() {
-    local rc=$1
-    local err_msg=${2:-}
-
-    case $rc in
-        0) return 0 ;;
-        2) return 2 ;;
-        *)
-            if [ -n "$err_msg" ]; then
-                _error "$err_msg"
-            fi
-            return 1
-            ;;
-    esac
-}
-
-_run_phase() {
-    local name=$1 rc
-    shift
-
-    _section "Phase: ${name}"
-    _info "Starting phase: ${name}"
-    "$@"
-    rc=$?
-    if [ $rc -eq 0 ]; then
-        _info "Phase completed: ${name}"
-    fi
-    _propagate_rc $rc "${name} failed"
-}
-
-_exit_on_rc() {
-    local rc=$1
-
-    case $rc in
-        0) return 0 ;;
-        2)
-            _info "Installation cancelled by user. Exiting."
-            exit 0
-            ;;
-        *)
-            exit 1
-            ;;
-    esac
-}
 
 # ============================================================================
 # Device discovery and display functions
@@ -534,29 +427,6 @@ _confirm_configuration() {
                 ;;
             *)
                 _warn "Please enter 'yes' or 'no'"
-                ;;
-        esac
-    done
-}
-
-_prompt_yes_no() {
-    local prompt_msg=$1
-    local response
-
-    while true; do
-        read -r -p "$prompt_msg" response
-
-        case $response in
-            [Yy]|[Yy][Ee][Ss])
-                _out "${prompt_msg} yes"
-                return 0
-                ;;
-            [Nn]|[Nn][Oo])
-                _out "${prompt_msg} no"
-                return 1
-                ;;
-            *)
-                _warn "Please enter y or n"
                 ;;
         esac
     done
@@ -1753,7 +1623,6 @@ _finish_installation() {
 
 main() {
     _info "Arch Linux Installation Script"
-    _info "Logging to: ${LOGFILE}"
 
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then

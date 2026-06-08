@@ -22,18 +22,22 @@ The setup script detects (or accepts as argument) whether the system is Arch, De
 
 **Fedora-specific:** Enables RPM Fusion, installs packages from `dnf_*`, `rpmfusion_*`, and `flatpak_*` groups in `vars/fedora-vars`, installs `pyenv`/`nvm`/`tfswitch` manually, adds NordVPN repo.
 
-Output is logged to `logs/<timestamp>_setup.log`.
+Output is logged to `logs/<timestamp>_setup.log` (absolute path under repo root).
+
+**Logging:** All scripts source `scripts/lib/common.sh` for shared logging (`INFO`, `OUT`, `WARN`, `ERROR`, `RUN` levels with timestamps). Logs are written to `logs/` via `tee` regardless of current working directory.
 
 ## Repository structure
 
 ```
 ├── setup                       # Entry point — detects distro and dispatches
 ├── scripts/
+│   ├── lib/
+│   │   └── common.sh           # Shared logging and setup helpers
 │   ├── setup-arch              # Full Arch (KDE) setup
 │   ├── setup-debian            # Full Debian (KDE) setup
 │   ├── setup-fedora            # Full Fedora (KDE) setup
 │   ├── setup-arch-i3           # Older i3-based Arch setup (unused)
-│   └── install-arch            # Arch Linux installation script (partitioning, etc.)
+│   └── install-arch            # Arch Linux live ISO install script
 ├── vars/
 │   ├── arch-vars               # Package lists for Arch (pacman & paru/AUR)
 │   ├── debian-vars             # Package lists for Debian (apt & extras)
@@ -91,6 +95,16 @@ chmod u+x setup scripts/*
 
 The script auto-detects the distro from `/etc/os-release`. Pass `arch`, `debian`, or `fedora` manually if detection fails.
 
+### Arch install (live ISO)
+
+From the Arch live environment, run as root:
+
+```bash
+./scripts/install-arch
+```
+
+Automates the flow in `instructions/install/arch-install.md`: partitioning, optional LUKS encryption, LVM, btrfs subvolumes, pacstrap, boot setup (GRUB/mkinitcpio), localization, user creation, KDE Plasma, and optional reboot. Logs to `logs/<timestamp>_install-arch.log`.
+
 ## Post-setup
 
 These steps are also printed by the script on completion:
@@ -122,8 +136,7 @@ These steps are also printed by the script on completion:
 
 ## Unfinished / TODO
 
-- **`install-arch`** — Arch installation (partitioning/formatting) script; work in progress.
+- **`install-arch`** — Post-install steps (snapper, grub-btrfs, etc.) still manual; see `instructions/install/arch-install.md`.
 - **`apps.md`** — Several apps still marked as not done (app launcher, tiling WM, Docker, RDP, mouse/keyboard tools, etc.).
-- Swap file creation (with hibernation?)
 - Configurable package selection (interactive options)
 - Clean package caches at the end?

@@ -1,24 +1,13 @@
 #!/usr/bin/env bash
 set -o pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+
 timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
-username="$(whoami)"
-LOGFILE="logs/${timestamp}_setup.log"
-
-mkdir -p logs
-exec 1> >(tee -a "$LOGFILE") 2>&1
-
-_log() {
-    local level="$1" msg="$2"
-    printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg"
-}
-
-_info() {
-    _log "INFO" "$*"
-    sleep 2
-}
-
-_log "INFO" "LINUX SETUP SCRIPT FOR ARCH, DEBIAN AND FEDORA"; sleep 1
+LOGFILE="${REPO_ROOT}/logs/${timestamp}_setup.log"
+init_logging "setup"
 
 _get_distro() {
     [ -f /etc/os-release ] && source /etc/os-release
@@ -29,42 +18,50 @@ _get_distro() {
     return 1
 }
 
+_print_post_setup_tasks() {
+    _section "Setup finished"
+    _out "Post-setup tasks:"
+    _out "1. Reboot the machine"
+    _out "2. Run ghostty"
+    _out "3. Check firewall rules if one was already installed"
+    _out "4. Install nvm and node:"
+    _out "   - Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating"
+    _out "   - exec zsh"
+    _out "   - nvm install node"
+    _out "5. Install python with pyenv (skip first two steps on arch):"
+    _out "   - pyenv install -l | less"
+    _out "   - pyenv install <version>"
+    _out "   - pyenv global <version>"
+    _out "   - mkdir -p ~/Python && cd ~/Python"
+    _out "   - python -m venv <name>"
+    _out "6. Open nvim and install plugins:"
+    _out "   - nvim"
+    _out "   - Let lazy.nvim install plugins"
+    _out "   - :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint"
+    _out "7. Open tmux (tmux) and install plugins (ctrl+space I)"
+}
+
 main() {
+    local distro username
+
+    username="$(whoami)"
+    _info "Linux setup script for Arch, Debian, and Fedora"
+
     distro=$(_get_distro "$1")
     if [ $? -ne 0 ] || [ -z "$distro" ]; then
-        _log "ERROR" "Unknown distribution. Provide 'arch', 'debian', or 'fedora' as an argument."
+        _error "Unknown distribution. Provide 'arch', 'debian', or 'fedora' as an argument."
         exit 1
     fi
 
-    _info "Running setup for $distro..."
-    LOGFILE="$LOGFILE" scripts/setup-$distro $username
-    
+    _info "Running setup for ${distro}..."
+    LOGFILE="${LOGFILE}" LINUX_SETUP_LOGGING=1 "${REPO_ROOT}/scripts/setup-${distro}" "$username"
+
     if [ $? -eq 0 ]; then
-        _log "INFO" "Setup completed. Log saved to: $LOGFILE"
-        echo ""
-        echo "SETUP FINISHED"
-        echo "Post-setup tasks:"
-        echo "1. Reboot the machine"
-        echo "2. Run ghostty"
-        echo "3. Check firewall rules if one was already installed"
-        echo "4. Install nvm and node:"
-        echo "   - Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating"
-        echo "   - exec zsh"
-        echo "   - nvm install node"
-        echo "5. Install python with pyenv (skip first two steps on arch):"
-        echo "   - pyenv install -l | less"
-        echo "   - pyenv install <version>"
-        echo "   - pyenv global <version>"
-        echo "   - mkdir -p ~/Python && cd ~/Python"
-        echo "   - python -m venv <name>"
-        echo "6. Open nvim and install plugins:"
-        echo "   - nvim"
-        echo "   - Let lazy.nvim install plugins"
-        echo "   - :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint"
-        echo "7. Open tmux (tmux) and install plugins (ctrl+space I)"
+        _info "Setup completed. Log saved to: ${LOGFILE}"
+        _print_post_setup_tasks
         exit 0
     else
-        _log "ERROR" "Setup interrupted by unexpected error"
+        _error "Setup interrupted by unexpected error"
         exit 1
     fi
 }
