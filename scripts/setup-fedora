@@ -17,6 +17,11 @@ USERNAME=$1
 SETUP_UFW=true
 FEDORA_VERSION="$(rpm -E %fedora 2>/dev/null || echo "")"
 
+BTRFS_MOUNT_OPTS="noatime,ssd,compress=zstd:1,space_cache=v2,discard=async,commit=120"
+SETUP_BTRFS_SNAPPER=true
+SETUP_GRUB_BTRFS=true
+SETUP_GRUB_CRYPTOMOUNT=true
+
 _dnf() {
     sudo dnf "$@"
 }
@@ -93,6 +98,23 @@ _enable_rpmfusion() {
         "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VERSION}.noarch.rpm"
 }
 
+_setup_systemd_resolved() {
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "systemd-resolved already setup"
+        return 0
+    fi
+
+    if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q systemd; then
+        _info "systemd-resolved already in use"
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        return 0
+    fi
+
+    _echo_run sudo systemctl enable --now systemd-resolved.service
+    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+}
+
 _setup_nordvpn() {
     if command -v nordvpn &> /dev/null; then
         _info "NordVPN already installed"
@@ -120,21 +142,238 @@ EOF
     _info "Login with: nordvpn login --token \"<token_from_account_here>\""
 }
 
-_setup_systemd_resolved() {
-    if [ -f "/etc/resolv.conf.bak" ]; then
-        _info "systemd-resolved already setup"
+# ---------------------------------------------------------------------------
+# Btrfs + Snapper
+# ---------------------------------------------------------------------------
+
+_is_btrfs() {
+    local path="${1:-/}"
+    findmnt -n -o FSTYPE "$path" 2>/dev/null | grep -qx btrfs
+}
+
+_btrfs_has_snapper_layout() {
+    local subvol missing=()
+    local expected=(log cache plasmalogin media spool tmp containers flatpak libvirt)
+
+    for subvol in "${expected[@]}"; do
+        sudo btrfs subvolume list / 2>/dev/null | grep -qE " path ${subvol}$" || missing+=("$subvol")
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        _warn "Option A subvolumes missing on /: ${missing[*]}"
+        return 1
+    fi
+    return 0
+}
+
+_btrfs_fstab_needs_mount_opts() {
+    grep -q btrfs /etc/fstab 2>/dev/null || return 1
+    grep btrfs /etc/fstab | grep -q 'noatime' \
+        && grep btrfs /etc/fstab | grep -q 'discard=async' \
+        && grep btrfs /etc/fstab | grep -q 'compress=zstd:1' && return 1
+    return 0
+}
+
+_setup_btrfs_mount_opts() {
+    _btrfs_fstab_needs_mount_opts || {
+        _info "Btrfs mount options already configured in /etc/fstab"
+        return 0
+    }
+
+    _info "Setting btrfs mount options in /etc/fstab: ${BTRFS_MOUNT_OPTS}"
+    _echo_run sudo cp /etc/fstab /etc/fstab.bkp
+
+    local tmp line subvol
+    tmp=$(mktemp)
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" == *" btrfs "* ]] && [[ "$line" == *"subvol="* ]]; then
+            if [[ "$line" =~ subvol=([^,[:space:]]+) ]]; then
+                subvol="${BASH_REMATCH[1]}"
+                line=$(sed -E "s/subvol=[^[:space:]]+/subvol=${subvol},${BTRFS_MOUNT_OPTS}/" <<< "$line")
+            fi
+        fi
+        printf '%s\n' "$line"
+    done < /etc/fstab > "$tmp"
+    _echo_run sudo cp "$tmp" /etc/fstab
+    rm -f "$tmp"
+    _warn "Reboot recommended to apply btrfs mount options"
+}
+
+_setup_snapper_configs() {
+    local snapper_dir="${REPO_ROOT}/config/fedora/snapper"
+
+    [ -d "$snapper_dir" ] || {
+        _error "Missing ${snapper_dir} — clone linux-setup repo with config/fedora/snapper/"
+        return 1
+    }
+    [ -f "${snapper_dir}/snapper.actions" ] || {
+        _error "Missing ${snapper_dir}/snapper.actions"
+        return 1
+    }
+
+    _info "Installing Snapper dnf5 helper scripts (repo → /usr/local/bin)..."
+    _echo_run sudo install -m 755 "${snapper_dir}/"*.sh /usr/local/bin/
+    _echo_run sudo restorecon -v /usr/local/bin/snapper-*.sh 2>/dev/null || true
+
+    _info "Installing dnf5 Snapper actions plugin config..."
+    _echo_run sudo mkdir -p /etc/dnf/libdnf5-plugins/actions.d/
+    _echo_run sudo install -m 644 "${snapper_dir}/snapper.actions" \
+        /etc/dnf/libdnf5-plugins/actions.d/snapper.actions
+
+    if [ ! -d /.snapshots ]; then
+        _info "Creating Snapper config for / ..."
+        _echo_run sudo snapper -c root create-config /
+    else
+        _info "Snapper root config already present (/.snapshots)"
+    fi
+
+    if _is_btrfs /home && [ ! -d /home/.snapshots ]; then
+        _info "Creating Snapper config for /home ..."
+        _echo_run sudo snapper -c home create-config /home
+    elif [ -d /home/.snapshots ]; then
+        _info "Snapper home config already present (/home/.snapshots)"
+    fi
+
+    _echo_run sudo restorecon -RFv /.snapshots 2>/dev/null || true
+    [ -d /home/.snapshots ] && _echo_run sudo restorecon -RFv /home/.snapshots 2>/dev/null || true
+
+    _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
+    if _is_btrfs /home && [ -f /etc/snapper/configs/home ]; then
+        _echo_run sudo snapper -c home set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes TIMELINE_CREATE=no
+    fi
+}
+
+_setup_snapper_updatedb() {
+    if grep -q '^PRUNENAMES' /etc/updatedb.conf; then
+        grep -q '\.snapshots' /etc/updatedb.conf && return 0
+        _echo_run sudo sed -i 's|^PRUNENAMES *= *"|PRUNENAMES = ".snapshots |' /etc/updatedb.conf
+    else
+        _echo_run bash -c "echo 'PRUNENAMES = \".snapshots\"' | sudo tee -a /etc/updatedb.conf"
+    fi
+}
+
+_setup_grub_btrfs() {
+    if systemctl is-enabled grub-btrfsd.service &>/dev/null; then
+        _info "grub-btrfsd already enabled"
         return 0
     fi
 
-    if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q systemd; then
-        _info "systemd-resolved already in use"
-        _echo_run sudo systemctl enable --now systemd-resolved.service
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    _info "Building and installing grub-btrfs from upstream..."
+    _echo_run git clone --depth 1 https://github.com/Antynea/grub-btrfs "${tmpdir}/grub-btrfs"
+    _echo_run sed -i \
+        -e 's|^#GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS=.*|GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS="rd.live.overlay.overlayfs=1"|' \
+        -e 's|^#GRUB_BTRFS_GRUB_DIRNAME=.*|GRUB_BTRFS_GRUB_DIRNAME="/boot/grub2"|' \
+        -e 's|^#GRUB_BTRFS_MKCONFIG=.*|GRUB_BTRFS_MKCONFIG=/usr/bin/grub2-mkconfig|' \
+        -e 's|^#GRUB_BTRFS_SCRIPT_CHECK=.*|GRUB_BTRFS_SCRIPT_CHECK=grub2-script-check|' \
+        "${tmpdir}/grub-btrfs/config"
+    _echo_run sudo make -C "${tmpdir}/grub-btrfs" install
+    _echo_run sudo systemctl enable --now grub-btrfsd.service
+    _echo_run sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+    _echo_run rm -rf "${tmpdir}"
+}
+
+_setup_snapper_timers() {
+    _echo_run sudo systemctl enable --now snapper-timeline.timer
+    _echo_run sudo systemctl enable --now snapper-cleanup.timer
+}
+
+_setup_btrfs_snapper() {
+    [ "${SETUP_BTRFS_SNAPPER:-true}" = true ] || {
+        _info "SETUP_BTRFS_SNAPPER=false; skipping Snapper setup"
         return 0
+    }
+
+    _is_btrfs / || {
+        _info "Root is not btrfs; skipping Snapper setup"
+        return 0
+    }
+
+    _info "Btrfs root detected; configuring Snapper and rollback support..."
+
+    _btrfs_has_snapper_layout || _warn "Subvolume layout differs from Option A — Snapper will still run"
+
+    _install_pkg "libdnf5-plugin-actions"
+    _install_pkg "inotify-tools"
+    _install_pkg "make"
+
+    _setup_btrfs_mount_opts
+    _setup_snapper_configs || return 1
+    _setup_snapper_updatedb
+
+    if [ "${SETUP_GRUB_BTRFS:-true}" = true ]; then
+        _setup_grub_btrfs
+    else
+        _info "SETUP_GRUB_BTRFS=false; skipping grub-btrfs"
     fi
 
-    _echo_run sudo systemctl enable --now systemd-resolved.service
-    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
-    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    _setup_snapper_timers
+    _info "Snapper setup complete (verify: snapper list; dnf install htop)"
+}
+
+# ---------------------------------------------------------------------------
+# Full disk encryption — GRUB cryptomount persistence
+# ---------------------------------------------------------------------------
+
+_root_is_encrypted() {
+    local root_src
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null) || return 1
+    [[ "$root_src" == /dev/mapper/* ]] && return 0
+    cryptsetup status "$root_src" &>/dev/null
+}
+
+_boot_on_encrypted_root() {
+    if ! findmnt /boot &>/dev/null; then
+        return 0
+    fi
+    local root_src boot_src
+    root_src=$(findmnt -n -o SOURCE /)
+    boot_src=$(findmnt -n -o SOURCE /boot)
+    [ "$root_src" = "$boot_src" ]
+}
+
+_needs_grub_cryptomount_fix() {
+    _root_is_encrypted || return 1
+    _boot_on_encrypted_root || return 1
+    [ -f /boot/efi/EFI/fedora/grub.cfg ] || return 1
+}
+
+_setup_grub_cryptomount_fix() {
+    [ "${SETUP_GRUB_CRYPTOMOUNT:-true}" = true ] || {
+        _info "SETUP_GRUB_CRYPTOMOUNT=false; skipping GRUB cryptomount fix"
+        return 0
+    }
+
+    _needs_grub_cryptomount_fix || {
+        _info "Encrypted root with /boot on root not detected; skipping GRUB cryptomount fix"
+        return 0
+    }
+
+    local src="${REPO_ROOT}/config/fedora/grub-cryptomount"
+    [ -f "${src}/99_cryptomount_check" ] || {
+        _warn "Missing ${src}/99_cryptomount_check; skipping GRUB cryptomount fix"
+        return 1
+    }
+
+    _info "Encrypted root detected; installing GRUB cryptomount auto-fix..."
+
+    command -v cryptsetup &>/dev/null || _install_pkg "cryptsetup"
+
+    _echo_run sudo install -Dm755 "${src}/99_cryptomount_check" /etc/grub.d/99_cryptomount_check
+    _echo_run sudo install -Dm644 "${src}/cryptomount-check.service" /etc/systemd/system/cryptomount-check.service
+    _echo_run sudo install -Dm644 "${src}/cryptomount-check.path" /etc/systemd/system/cryptomount-check.path
+    _echo_run sudo systemctl daemon-reload
+    _echo_run sudo systemctl enable --now cryptomount-check.path
+    _echo_run sudo bash /etc/grub.d/99_cryptomount_check
+
+    local first_line
+    first_line=$(sudo head -n 1 /boot/efi/EFI/fedora/grub.cfg 2>/dev/null || true)
+    if [[ "$first_line" == cryptomount\ -u\ * ]]; then
+        _info "GRUB cryptomount line verified: ${first_line}"
+    else
+        _warn "GRUB cryptomount line missing after fix — check /boot/efi/EFI/fedora/grub.cfg"
+    fi
 }
 
 main() {
@@ -155,6 +394,9 @@ main() {
 
     _info "Installing dnf packages..."
     _install_packages "dnf packages" "${dnf_packages[@]}"
+
+    _setup_btrfs_snapper
+    _setup_grub_cryptomount_fix
 
     _info "Checking if there's an existing firewall service running..."
     _check_firewall_service "ufw" "ufw"

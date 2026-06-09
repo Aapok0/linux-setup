@@ -1,0 +1,69 @@
+#!/bin/bash
+# /etc/grub.d/99_cryptomount_check
+#
+# Ensures 'cryptomount -u <UUID>' is always the first line of
+# /boot/efi/EFI/fedora/grub.cfg after grub2-mkconfig runs.
+#
+# On systems where /boot lives inside a LUKS-encrypted root (no separate
+# /boot partition), GRUB requires this line before it can read boot files.
+# Fedora updates can overwrite grub.cfg and remove the line.
+#
+# All output goes to stderr — grub2-mkconfig captures stdout from /etc/grub.d/
+# scripts and would corrupt /boot/grub2/grub.cfg otherwise.
+
+exec 1>&2
+
+GRUB_CFG="/boot/efi/EFI/fedora/grub.cfg"
+SCRIPT_NAME="99_cryptomount_check"
+
+echo "[${SCRIPT_NAME}] Starting cryptomount check..."
+
+ROOT_DEVICE="$(grub2-probe --target=device / 2>/dev/null)"
+if [ -z "$ROOT_DEVICE" ]; then
+    echo "[${SCRIPT_NAME}] ERROR: grub2-probe could not determine root device. Skipping."
+    exit 1
+fi
+echo "[${SCRIPT_NAME}] Root device: ${ROOT_DEVICE}"
+
+LUKS_DEVICE="$(cryptsetup status "$ROOT_DEVICE" 2>/dev/null | grep 'device:' | awk '{print $2}')"
+if [ -z "$LUKS_DEVICE" ]; then
+    echo "[${SCRIPT_NAME}] ERROR: Could not resolve LUKS device from cryptsetup status. Skipping."
+    exit 1
+fi
+echo "[${SCRIPT_NAME}] LUKS device: ${LUKS_DEVICE}"
+
+LUKS_UUID="$(cryptsetup luksUUID "$LUKS_DEVICE" 2>/dev/null)"
+if [ -z "$LUKS_UUID" ]; then
+    echo "[${SCRIPT_NAME}] ERROR: Could not retrieve LUKS UUID. Skipping."
+    exit 1
+fi
+
+LUKS_UUID_NO_DASH="${LUKS_UUID//-/}"
+EXPECTED_LINE="cryptomount -u ${LUKS_UUID_NO_DASH}"
+echo "[${SCRIPT_NAME}] Expected first line: '${EXPECTED_LINE}'"
+
+if [ ! -f "$GRUB_CFG" ]; then
+    echo "[${SCRIPT_NAME}] WARNING: ${GRUB_CFG} not found. Skipping."
+    exit 1
+fi
+
+FIRST_LINE="$(head -n 1 "$GRUB_CFG")"
+
+if [ "$FIRST_LINE" = "$EXPECTED_LINE" ]; then
+    echo "[${SCRIPT_NAME}] Line already present and correct. Nothing to do."
+    exit 0
+fi
+
+echo "[${SCRIPT_NAME}] Line missing or incorrect. Current first line: '${FIRST_LINE}'"
+echo "[${SCRIPT_NAME}] Fixing ${GRUB_CFG}..."
+
+TMPFILE="$(mktemp)" || { echo "[${SCRIPT_NAME}] ERROR: Could not create temp file. Aborting."; exit 1; }
+
+grep -v '^cryptomount -u ' "$GRUB_CFG" > "$TMPFILE" || true
+
+{ echo "$EXPECTED_LINE"; cat "$TMPFILE"; } > "${GRUB_CFG}.new"
+
+mv "${GRUB_CFG}.new" "$GRUB_CFG"
+rm -f "$TMPFILE"
+
+echo "[${SCRIPT_NAME}] Done. Successfully added: '${EXPECTED_LINE}'"
