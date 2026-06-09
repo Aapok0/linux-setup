@@ -33,7 +33,8 @@ basic_packages=(
     "tk" # pyenv dependency
     "pnpm"
     "fastfetch"
-    "exfat-utils"
+    "exfatprogs"
+    "ntfs-3g"
     "smartmontools"
     "fwupd"
     "snapper"
