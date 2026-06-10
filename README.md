@@ -136,7 +136,6 @@ These steps are also printed by the script on completion:
 
 ## Unfinished / TODO
 
-- **`install-arch`** — Post-install steps (snapper, grub-btrfs, etc.) still manual; see `instructions/install/arch-install.md`.
 - **`apps.md`** — Several apps still marked as not done (app launcher, tiling WM, Docker, RDP, mouse/keyboard tools, etc.).
 - Configurable package selection (interactive options)
 - Clean package caches at the end?

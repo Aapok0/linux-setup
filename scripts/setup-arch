@@ -15,6 +15,7 @@ init_logging "setup"
 source "${REPO_ROOT}/vars/arch-vars"
 USERNAME=$1
 SETUP_UFW=true
+SETUP_BTRFS_SNAPPER=true
 
 _pkg_is_installed() {
     paru -Qs "$1" | grep -q "local.*$1 "
@@ -44,6 +45,190 @@ _install_packages() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# Btrfs + Snapper (Arch Wiki suggested layout)
+# ---------------------------------------------------------------------------
+
+_is_btrfs() {
+    local path="${1:-/}"
+    findmnt -n -o FSTYPE "$path" 2>/dev/null | grep -qx btrfs
+}
+
+_setup_bootbackup_hooks() {
+    local hooks_dir="${REPO_ROOT}/config/arch/pacman/hooks"
+    local hook
+
+    [ -d "$hooks_dir" ] || {
+        _error "Missing ${hooks_dir}"
+        return 1
+    }
+
+    _info "Installing /boot backup pacman hooks (→ /.bootbackup)..."
+    for hook in 55-bootbackup_pre.hook 95-bootbackup_post.hook; do
+        [ -f "${hooks_dir}/${hook}" ] || {
+            _error "Missing ${hooks_dir}/${hook}"
+            return 1
+        }
+        _echo_run sudo install -Dm644 "${hooks_dir}/${hook}" "/etc/pacman.d/hooks/${hook}"
+    done
+}
+
+_setup_snapper_updatedb() {
+    if grep -q '^PRUNENAMES' /etc/updatedb.conf; then
+        grep -q '\.snapshots' /etc/updatedb.conf && return 0
+        _echo_run sudo sed -i 's|^PRUNENAMES *= *"|PRUNENAMES = ".snapshots |' /etc/updatedb.conf
+    else
+        _echo_run bash -c "echo 'PRUNENAMES = \".snapshots\"' | sudo tee -a /etc/updatedb.conf"
+    fi
+}
+
+_snapper_config_exists() {
+    local config="$1"
+    [ -f "/etc/snapper/configs/${config}" ]
+}
+
+_setup_snapper_config_for_mount() {
+    local config="$1"
+    local mount_path="$2"
+    local snapshots_mount="$3"
+
+    if _snapper_config_exists "$config"; then
+        _info "Snapper config '${config}' already present"
+        return 0
+    fi
+
+    _info "Creating Snapper config '${config}' for ${mount_path}..."
+
+    if mountpoint -q "$snapshots_mount" 2>/dev/null; then
+        _echo_run sudo umount "$snapshots_mount"
+    fi
+    if [ -e "$snapshots_mount" ]; then
+        _echo_run sudo rm -rf "$snapshots_mount"
+    fi
+
+    _echo_run sudo snapper -c "$config" create-config "$mount_path"
+
+    if sudo btrfs subvolume show "$snapshots_mount" &>/dev/null; then
+        _echo_run sudo umount "$snapshots_mount" 2>/dev/null || true
+        _echo_run sudo btrfs subvolume delete "$snapshots_mount"
+    fi
+
+    _echo_run sudo mkdir -p "$snapshots_mount"
+    _echo_run sudo mount -a
+    _echo_run sudo chmod 750 "$snapshots_mount"
+}
+
+_setup_snapper_configs() {
+    _setup_snapper_config_for_mount root / /.snapshots
+
+    if _is_btrfs /home; then
+        _setup_snapper_config_for_mount home /home /home/.snapshots
+    fi
+
+    _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
+
+    if _is_btrfs /home && _snapper_config_exists home; then
+        _echo_run sudo snapper -c home set-config \
+            "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes TIMELINE_CREATE=no
+    fi
+}
+
+_setup_snapper_rollback() {
+    local src="${REPO_ROOT}/config/arch/snapper-rollback.conf"
+    local root_src tmp
+
+    _install_pkg "snapper-rollback" "--skipreview --noconfirm"
+
+    [ -f "$src" ] || {
+        _warn "Missing ${src}; configure /etc/snapper-rollback.conf manually"
+        return 0
+    }
+
+    if [ -f /etc/snapper-rollback.conf ]; then
+        _info "snapper-rollback.conf already present"
+        return 0
+    fi
+
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+    root_src=${root_src%%\[*}
+
+    _info "Installing /etc/snapper-rollback.conf (dev=${root_src:-unset})..."
+    tmp=$(mktemp)
+    sed "s|^#dev = .*|dev = ${root_src}|" "$src" > "$tmp"
+    if [ -z "$root_src" ]; then
+        _warn "Could not detect btrfs device for / — edit dev= in /etc/snapper-rollback.conf"
+    fi
+    _echo_run sudo install -Dm644 "$tmp" /etc/snapper-rollback.conf
+    rm -f "$tmp"
+}
+
+_setup_mkinitcpio_overlayfs() {
+    if grep -q 'grub-btrfs-overlayfs' /etc/mkinitcpio.conf 2>/dev/null; then
+        _info "mkinitcpio grub-btrfs-overlayfs hook already configured"
+        return 0
+    fi
+
+    if grep -qE 'HOOKS=.*systemd' /etc/mkinitcpio.conf 2>/dev/null; then
+        _warn "mkinitcpio uses systemd hook — grub-btrfs-overlayfs requires udev (see Arch Wiki Snapper)"
+    fi
+
+    _info "Adding grub-btrfs-overlayfs hook to mkinitcpio.conf..."
+    _echo_run sudo cp /etc/mkinitcpio.conf /etc/mkinitcpio.conf.bkp
+    _echo_run sudo sed -i 's/\(HOOKS=(.*\))/\1 grub-btrfs-overlayfs)/' /etc/mkinitcpio.conf
+    _echo_run sudo mkinitcpio -P
+}
+
+_setup_grub_btrfs() {
+    if systemctl is-enabled grub-btrfsd.service &>/dev/null; then
+        _info "grub-btrfsd already enabled"
+    else
+        _info "Enabling grub-btrfsd (watches /.snapshots, updates GRUB menu)..."
+        local dropin_dir="/etc/systemd/system/grub-btrfsd.service.d"
+        _echo_run sudo mkdir -p "$dropin_dir"
+        _echo_run sudo tee "${dropin_dir}/override.conf" >/dev/null <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
+EOF
+        _echo_run sudo systemctl daemon-reload
+        _echo_run sudo systemctl enable --now grub-btrfsd.service
+    fi
+
+    if [ -f /boot/grub/grub.cfg ]; then
+        _echo_run sudo grub-mkconfig -o /boot/grub/grub.cfg
+    fi
+}
+
+_setup_snapper_timers() {
+    _echo_run sudo systemctl enable --now snapper-timeline.timer
+    _echo_run sudo systemctl enable --now snapper-cleanup.timer
+}
+
+_setup_btrfs_snapper() {
+    [ "${SETUP_BTRFS_SNAPPER:-true}" = true ] || {
+        _info "SETUP_BTRFS_SNAPPER=false; skipping Snapper setup"
+        return 0
+    }
+
+    _is_btrfs / || {
+        _info "Root is not btrfs; skipping Snapper setup"
+        return 0
+    }
+
+    _info "Btrfs root detected; configuring Snapper rollback support (Phase 1)..."
+
+    _setup_bootbackup_hooks || return 1
+    _setup_snapper_configs || return 1
+    _setup_snapper_updatedb
+    _setup_mkinitcpio_overlayfs
+    _setup_grub_btrfs
+    _setup_snapper_timers
+    _setup_snapper_rollback
+
+    _info "Snapper setup complete (verify: snapper list; paru -S htop)"
+    _info "Rollback docs: instructions/install/arch-install.md#rollback-and-restore"
+}
+
 main() {
     _info "Setting up environment for an arch based distribution."
 
@@ -67,6 +252,8 @@ main() {
 
     _info "Installing basic packages..."
     _install_packages "basic packages" "${basic_packages[@]}"
+
+    _setup_btrfs_snapper
 
     _info "Checking if there's an existing firewall service running..."
     _check_firewall_service "ufw" "ufw"

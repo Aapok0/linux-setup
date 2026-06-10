@@ -2,6 +2,8 @@
 
 For reinstalling Arch Linux with my personal preferences while preserving /home partition and existing configurations.
 
+> **Automation:** Root filesystem layout and chroot reinstall can be adapted from `./scripts/install-arch` (home disk preserved). After reboot, `./setup arch` applies [Post-install steps](#post-install-steps) automatically. This document remains the manual reference.
+
 ## Initial steps
 
 ### Load Finnish keybaord layout
@@ -85,6 +87,11 @@ btrfs subvol create @
 btrfs subvol create @snapshots
 btrfs subvol create @var_log
 btrfs subvol create @var_cache
+btrfs subvol create @var_tmp
+btrfs subvol create @var_spool
+btrfs subvol create @var_lib_containers
+btrfs subvol create @var_lib_docker
+btrfs subvol create @var_lib_libvirt
 
 cd
 umount /mnt
@@ -99,10 +106,15 @@ mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvo
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@snapshots /dev/mapper/arch-root /mnt/.snapshots
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_log /dev/mapper/arch-root /mnt/var/log
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_cache /dev/mapper/arch-root /mnt/var/cache
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_tmp /dev/mapper/arch-root /mnt/var/tmp
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_spool /dev/mapper/arch-root /mnt/var/spool
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_lib_containers /dev/mapper/arch-root /mnt/var/lib/containers
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_lib_docker /dev/mapper/arch-root /mnt/var/lib/docker
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_lib_libvirt /dev/mapper/arch-root /mnt/var/lib/libvirt
 mount --mkdir /dev/<boot_partition> /mnt/boot
 mount --mkdir /dev/<EFI_partition> /mnt/boot/efi
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home /dev/mapper/arch_home-home /mnt/home
-mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@snapshots /dev/mapper/arch_home-home /mnt/home/.snapshots
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home_snapshots /dev/mapper/arch_home-home /mnt/home/.snapshots
 
 # swap partition
 swapon /dev/<swap_partition>
@@ -435,96 +447,15 @@ reboot now
 
 ## Post-install steps
 
-Might need to write decrypt passphrase with US keyboard layout and set Finnish keyboard again... Need to find a fix for this.
+Same as a fresh install — see [arch-install.md — Post install steps](arch-install.md#post-install-steps) and [Rollback and restore](arch-install.md#rollback-and-restore).
 
-```bash
-localectl --no-convert set-keymap fi
-localectl --no-convert set-x11-keymap fi pc106 winkeys
+> **Shortcut:** `cd ~/Workspace/linux-setup && ./setup arch`
 
-sudo mkinitcpio -p linux
-sudo mkinitcpio -p linux-lts
-```
-
-Upgrade all packages:
-
-```bash
-sudo pacman -Syu
-```
-
-Install tools for automatic btrfs snapshots:
-
-```bash
-sudo pacman -S grub-btrfs inotify-tools snapper
-```
-
-Stop updatedb from indexing snapshots:
-
-```bash
-sudo nvim /etc/updatedb.conf
-
-# Add the following line
-PRUNENAMES = ".snapshots"
-```
-
-Unmount snapshot subvolumes and remove the directories for snapper to create them:
-
-```bash
-sudo umount /.snapshots /home/.snapshots
-sudo rm -r /.snapshots /home/.snapshots
-```
-
-Have snapper create configs for the root and home subvolumes:
-
-```bash
-sudo snapper -c root create-config /
-# Set to liking
-sudo nvim /etc/snapper/configs/root
-
-# Set to liking (at least change subvolume)
-sudo snapper -c home create-config /home
-sudo nvim /etc/snapper/configs/home
-```
-
-Delete the resulting subvolumes and remount the subvolumes created in the install:
-
-```bash
-sudo btrfs subvol delete /.snapshots
-sudo btrfs subvol delete /home/.snapshots
-sudo mount /.snapshots /home/.snapshots
-```
-
-Enable snapper systemd timers:
-
-```bash
-sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
-```
-
-Add snapshots to grub menu:
-
-```bash
-sudo systemctl edit --full grub-btrfsd
-
-# Change this line
-ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
-```
-
-Enable grub-btrfsd:
-
-```bash
-sudo systemctl enable --now grub-btrfsd
-```
+Restored `/etc/snapper/configs/` from backup may be reused; still run Snapper remount dance if `/.snapshots` paths changed. Reinstall **must** restore `/boot` from `/.bootbackup` after any `@` rollback (see arch-install.md).
 
 ## Next steps
-
-Run the personal setup script:
 
 ```bash
 cd ~/Workspace/linux-setup
 ./setup arch
-```
-
-Install automatic snapshot tool
-
-```bash
-paru -S snap-pac
 ```

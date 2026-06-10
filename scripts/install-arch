@@ -941,13 +941,18 @@ _create_btrfs_subvolumes() {
     _echo_run btrfs subvolume create "$MNT/@snapshots" || return 1
     _echo_run btrfs subvolume create "$MNT/@var_log" || return 1
     _echo_run btrfs subvolume create "$MNT/@var_cache" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_tmp" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_spool" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_lib_containers" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_lib_docker" || return 1
+    _echo_run btrfs subvolume create "$MNT/@var_lib_libvirt" || return 1
     _echo_run umount -R "$MNT" || return 1
 
     _info "Creating home btrfs subvolumes on $HOME_LV..."
 
     _echo_run mount --mkdir "$HOME_LV" "${MNT}/home" || return 1
     _echo_run btrfs subvolume create "${MNT}/home/@home" || return 1
-    _echo_run btrfs subvolume create "${MNT}/home/@home/@snapshots" || return 1
+    _echo_run btrfs subvolume create "${MNT}/home/@home_snapshots" || return 1
     _echo_run btrfs subvolume create "${MNT}/home/@home/@media" || return 1
     _echo_run umount -R "$MNT" || return 1
 
@@ -969,10 +974,15 @@ _mount_installation() {
     _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@snapshots" "$ROOT_LV" "${MNT}/.snapshots" || return 1
     _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_log" "$ROOT_LV" "${MNT}/var/log" || return 1
     _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_cache" "$ROOT_LV" "${MNT}/var/cache" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_tmp" "$ROOT_LV" "${MNT}/var/tmp" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_spool" "$ROOT_LV" "${MNT}/var/spool" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_lib_containers" "$ROOT_LV" "${MNT}/var/lib/containers" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_lib_docker" "$ROOT_LV" "${MNT}/var/lib/docker" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@var_lib_libvirt" "$ROOT_LV" "${MNT}/var/lib/libvirt" || return 1
     _echo_run mount --mkdir "$BOOT_PARTITION" "${MNT}/boot" || return 1
     _echo_run mount --mkdir "$EFI_PARTITION" "${MNT}/boot/efi" || return 1
     _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home" "$HOME_LV" "${MNT}/home" || return 1
-    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home/@snapshots" "$HOME_LV" "${MNT}/home/.snapshots" || return 1
+    _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home_snapshots" "$HOME_LV" "${MNT}/home/.snapshots" || return 1
     _echo_run mount --mkdir -o "$btrfs_opts,subvol=/@home/@media" "$HOME_LV" "${MNT}/home/${INSTALL_USERNAME}/Media" || return 1
 
     swap_device=$(_get_swap_device)

@@ -39,6 +39,9 @@ basic_packages=(
     "fwupd"
     "snapper"
     "btrfs-progs"
+    "snap-pac"
+    "grub-btrfs"
+    "inotify-tools"
 )
 
 basic_packages_aur=(

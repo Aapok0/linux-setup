@@ -2,6 +2,8 @@
 
 For installing Arch Linux with my personal preferences.
 
+> **Automation:** The same flow can be run from the Arch live ISO with `./scripts/install-arch` (partitioning, btrfs layout, chroot install). After first boot, `./setup arch` automates the [Post-install steps](#post-install-steps) below (Snapper, snap-pac, `/boot` backup hooks, grub-btrfs, overlayfs initramfs). Keep this document for manual installs or when you want step-by-step control.
+
 ## Initial steps
 
 ### Load Finnish keybaord layout
@@ -218,7 +220,32 @@ btrfs subvol create @
 btrfs subvol create @snapshots
 btrfs subvol create @var_log
 btrfs subvol create @var_cache
+btrfs subvol create @var_tmp
+btrfs subvol create @var_spool
+btrfs subvol create @var_lib_containers
+btrfs subvol create @var_lib_docker
+btrfs subvol create @var_lib_libvirt
 ```
+
+##### Why pre-create `@snapshots`?
+
+The [Arch Wiki suggested layout](https://wiki.archlinux.org/title/Snapper#Suggested_filesystem_layout) **still lists `@snapshots` as a top-level sibling** of `@`. That has not been withdrawn.
+
+What **archinstall ≥ 3.0.5** changed: it stopped mounting a pre-created `@.snapshots` directory before `snapper create-config`, because that conflicted with Snapper creating `.snapshots` **inside** `@`. The fix is the [post-install remount dance](#configure-snapper), not dropping `@snapshots` entirely.
+
+- **Pre-create `@snapshots`** at install → snapshots live outside `@` → you can replace `@` without losing history.
+- **Do not** leave Snapper's default `.snapshots` inside `@` — delete it after `create-config` and mount `@snapshots` at `/.snapshots` instead.
+
+##### Optional root subvolumes
+
+| Subvolume | Mount | When to add |
+|-----------|-------|-------------|
+| `@var_lib_machines` | `/var/lib/machines` | systemd-nspawn machine images |
+| `@var_lib_postgres` | `/var/lib/postgres` | PostgreSQL data directory |
+
+**`@var_lib_containers` vs `@var_lib_docker`:** `/var/lib/containers` is **Podman/CRI-O** storage; `/var/lib/docker` is **Docker Engine** (Moby). Both are included by default here — separate stacks, separate subvolumes.
+
+Snapper does **not** create any subvolumes automatically — layout is chosen at install time.
 
 ##### Home
 
@@ -227,8 +254,8 @@ mount --mkdir /dev/mapper/arch_home-home /mnt/home
 cd /mnt/home
 
 btrfs subvol create @home
-btrfs subvol create @snapshots
-btrfs subvol create @media
+btrfs subvol create @home_snapshots
+btrfs subvol create @home/@media
 ```
 
 ##### Unmount
@@ -245,10 +272,15 @@ mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvo
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@snapshots /dev/mapper/arch-root /mnt/.snapshots
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_log /dev/mapper/arch-root /mnt/var/log
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_cache /dev/mapper/arch-root /mnt/var/cache
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_tmp /dev/mapper/arch-root /mnt/var/tmp
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_spool /dev/mapper/arch-root /mnt/var/spool
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_lib_containers /dev/mapper/arch-root /mnt/var/lib/containers
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_lib_docker /dev/mapper/arch-root /mnt/var/lib/docker
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@var_lib_libvirt /dev/mapper/arch-root /mnt/var/lib/libvirt
 mount --mkdir /dev/<boot_partition> /mnt/boot
 mount --mkdir /dev/<EFI_partition> /mnt/boot/efi
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home /dev/mapper/arch_home-home /mnt/home
-mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home/@snapshots /dev/mapper/arch_home-home /mnt/home/.snapshots
+mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home_snapshots /dev/mapper/arch_home-home /mnt/home/.snapshots
 mount --mkdir -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,commit=120,subvol=/@home/@media /dev/mapper/arch_home-home /mnt/home/<planned_username>/Media
 
 # swap partition
@@ -571,96 +603,292 @@ reboot now
 
 ## Post install steps
 
+> **Shortcut:** `cd ~/Workspace/linux-setup && ./setup arch` runs these Snapper/btrfs steps automatically (plus the rest of your environment setup). The manual steps below match what the script does.
+
 Might need to write decrypt passphrase with US keyboard layout and set Finnish keyboard again... Need to find a fix for this.
 
 ```bash
 localectl --no-convert set-keymap fi
 localectl --no-convert set-x11-keymap fi pc106 winkeys
 
-mkinitcpio -p linux
-mkinitcpio -p linux-lts
+sudo mkinitcpio -P
 ```
 
 Upgrade all packages:
 
 ```bash
-pacman -Syu
+paru -Syu
 ```
 
-Install tools for automatic btrfs snapshots:
+### Install snapshot and boot tools
 
 ```bash
-sudo pacman -S grub-btrfs inotify-tools snapper
+paru -S snapper snap-pac grub-btrfs inotify-tools rsync snapper-rollback
 ```
 
-Stop updatedb from indexing snapshots:
+- **snap-pac** — [extra] repo; pre/post Snapper snapshots around `pacman` transactions
+- **grub-btrfs** — [extra]; btrfs snapshot entries in GRUB (`grub-btrfsd` watches `/.snapshots`)
+- **snapper-rollback** — [AUR]; CLI live-ISO / emergency `@` subvolume restore (see [rollback](#c--restore--from-live-iso))
+
+Optional AUR: **snap-pac-grub** — refreshes GRUB immediately after snap-pac (usually redundant if `grub-btrfsd` is running).
+
+### Exclude snapshots from locate
 
 ```bash
 sudo nvim /etc/updatedb.conf
-
-# Add the following line
+# Add or extend:
 PRUNENAMES = ".snapshots"
 ```
 
-Unmount snapshot subvolumes and remove the directories for snapper to create them:
+### Back up /boot into btrfs
+
+`/boot` is ext4 and is **not** included in `@` snapshots. Copy it into `/.bootbackup` on kernel changes so post-transaction snapshots carry a matching boot tree.
+
+Install hooks from this repo (or create equivalent files under `/etc/pacman.d/hooks/`):
 
 ```bash
-sudo umount /.snapshots /home/.snapshots
-sudo rm -r /.snapshots /home/.snapshots
+sudo install -Dm644 ~/Workspace/linux-setup/config/arch/pacman/hooks/55-bootbackup_pre.hook /etc/pacman.d/hooks/
+sudo install -Dm644 ~/Workspace/linux-setup/config/arch/pacman/hooks/95-bootbackup_post.hook /etc/pacman.d/hooks/
 ```
 
-Have snapper create configs for the root and home subvolumes:
+Hook `95` must sort **before** `zz-snap-pac-post.hook` so the backup is captured inside snap-pac's post snapshot. After the next kernel update, confirm:
 
 ```bash
+ls -la /.bootbackup/
+```
+
+### Configure Snapper
+
+Snapper's `create-config` places `.snapshots` **inside** `@`. This layout uses sibling `@snapshots` / `@home_snapshots` instead ([Arch Wiki](https://wiki.archlinux.org/title/Snapper#Suggested_filesystem_layout)).
+
+**Root:**
+
+```bash
+sudo umount /.snapshots
+sudo rm -rf /.snapshots
+
 sudo snapper -c root create-config /
-# Set to liking
-sudo nvim /etc/snapper/configs/root
 
-# Set to liking (at least change subvolume)
-sudo snapper -c home create-config /home
-sudo nvim /etc/snapper/configs/home
+sudo btrfs subvolume delete /.snapshots
+sudo mkdir /.snapshots
+sudo mount -a
+sudo chmod 750 /.snapshots
 ```
 
-Delete the resulting subvolumes and remount the subvolumes created in the install:
+**Home** (if btrfs):
 
 ```bash
-sudo btrfs subvol delete /.snapshots
-sudo btrfs subvol delete /home/.snapshots
-sudo mount /.snapshots /home/.snapshots
+sudo umount /home/.snapshots
+sudo rm -rf /home/.snapshots
+
+sudo snapper -c home create-config /home
+
+sudo btrfs subvolume delete /home/.snapshots
+sudo mkdir /home/.snapshots
+sudo mount -a
+sudo chmod 750 /home/.snapshots
 ```
 
-Enable snapper systemd timers:
+Tune configs if desired:
+
+```bash
+sudo nvim /etc/snapper/configs/root
+sudo nvim /etc/snapper/configs/home   # TIMELINE_CREATE="no" is reasonable for /home
+```
+
+Allow your user to run snapper:
+
+```bash
+sudo snapper -c root set-config ALLOW_USERS=<username> SYNC_ACL=yes
+sudo snapper -c home set-config ALLOW_USERS=<username> SYNC_ACL=yes TIMELINE_CREATE=no
+```
+
+### snapper-rollback config (live ISO restore)
+
+`./setup arch` writes `/etc/snapper-rollback.conf` from `config/arch/snapper-rollback.conf` with `dev=` set to your `/` block device. From a live ISO you may need to edit `mountpoint` / `dev` after unlocking LUKS:
+
+```bash
+sudo nvim /etc/snapper-rollback.conf
+# [root]
+# subvol_main = @
+# subvol_snapshots = @snapshots
+# mountpoint = /btrfsroot
+# dev = /dev/mapper/luks_root
+```
+
+### Boot read-only snapshots (overlayfs)
+
+Snapper snapshots are read-only. KDE and other services need a writable `/var`. On Arch, use the **grub-btrfs-overlayfs** mkinitcpio hook (ships with the `grub-btrfs` package).
+
+```bash
+sudo cp /etc/mkinitcpio.conf /etc/mkinitcpio.conf.bkp
+sudo nvim /etc/mkinitcpio.conf
+# Append to HOOKS (requires udev, not systemd):
+# HOOKS=(... fsck grub-btrfs-overlayfs)
+sudo mkinitcpio -P
+```
+
+### GRUB snapshot menu
+
+```bash
+sudo mkdir -p /etc/systemd/system/grub-btrfsd.service.d
+sudo tee /etc/systemd/system/grub-btrfsd.service.d/override.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now grub-btrfsd
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+### Snapper timers
 
 ```bash
 sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
 ```
 
-Add snapshots to grub menu:
+Verify:
 
 ```bash
-sudo systemctl edit --full grub-btrfsd
-
-# Change this line
-ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
-```
-
-Enable grub-btrfsd:
-
-```bash
-sudo systemctl enable --now grub-btrfsd
+snapper list
+paru -S htop    # should create pre/post snapshots
+snapper list
+ls /.bootbackup/
+command -v snapper-rollback
 ```
 
 ## Next steps
-
-Run the personal setup script:
 
 ```bash
 cd ~/Workspace/linux-setup
 ./setup arch
 ```
 
-Install automatic snapshot tool
+Install **btrfs-assistant** (optional GUI; also in `setup arch` via AUR apps):
 
 ```bash
-paru -S snap-pac
+paru -S btrfs-assistant
 ```
+
+---
+
+## Rollback and restore
+
+This layout follows the [Arch Wiki suggested btrfs + Snapper layout](https://wiki.archlinux.org/title/Snapper#Suggested_filesystem_layout).
+
+### Tools compared
+
+| Tool | What it does | Restores `/boot`? |
+|------|----------------|-------------------|
+| **btrfs-assistant** (GUI, extra/AUR) | Replaces `@` (or `@home`) with a Snapper snapshot subvolume; backs up current `@` first | **No** — restore `/boot` separately (below) |
+| **snapper-rollback** (AUR CLI) | Same `@` subvolume swap as Wiki/live ISO procedure; best when system won't boot | **No** — restore `/boot` separately |
+| **grub-btrfs menu** | Boots a **read-only** snapshot for testing/recovery | N/A — overlay session; use Restore to make permanent |
+
+**btrfs-assistant** and **snapper-rollback** both replace `@` from a snapshot; use the GUI when the system boots, **snapper-rollback** when you are on a live ISO or prefer CLI. Neither replaces the **`/.bootbackup` → `/boot` rsync** step while `/boot` stays on ext4.
+
+### A — Restore `/` from a running system (btrfs-assistant)
+
+Best when the system still boots.
+
+1. `sudo snapper -c root list` — pick snapshot number `N`.
+2. Open **btrfs-assistant** → Snapper → select snapshot → **Restore** (replaces `@`, keeps `@snapshots`).
+3. [Restore `/boot`](#restore-boot-from-bootbackup) from `/.bootbackup`.
+4. Reboot.
+
+If btrfs-assistant warns about `subvolid` in `/etc/fstab`, prefer `subvol=@` over `subvolid=` entries (see [Troubleshooting](#troubleshooting)).
+
+### B — Restore `/` from GRUB snapshot entry
+
+Use to **test** a snapshot or recover when the installed system will not start normally.
+
+1. Reboot → GRUB → **Snapshots** → pick a snapshot (read-only + overlayfs).
+2. Log in, confirm the system is the state you want.
+3. Either:
+   - **Make permanent:** btrfs-assistant → Restore that snapshot (as in A), then restore `/boot`, reboot; or
+   - **One-off session:** reboot without restoring — changes made in the overlay session are discarded.
+
+### C — Restore `/` from live ISO
+
+Use when the installed system does not boot or you want maximum control. Pick **manual** or **snapper-rollback** — same result for `@`; both still need [/boot restore](#restore-boot-from-bootbackup).
+
+#### C1 — Manual (Arch Wiki)
+
+From [Restoring / to its previous snapshot](https://wiki.archlinux.org/title/Snapper#Restoring_/_to_its_previous_snapshot):
+
+1. Boot Arch live ISO, unlock LUKS if needed.
+2. Mount top-level btrfs (no `subvol=`): `mount /dev/mapper/luks_root /mnt`
+3. Find snapshot: `grep -r '<date>' /mnt/@snapshots/*/info.xml` → note `N`
+4. Move broken `@`: `mv /mnt/@ /mnt/@.broken` (or `btrfs subvolume delete /mnt/@`)
+5. `btrfs subvolume snapshot /mnt/@snapshots/N/snapshot /mnt/@`
+6. Mount `@` at `/mnt` (if needed), mount `/boot` and ESP; `arch-chroot /mnt`
+7. [Restore `/boot`](#restore-boot-from-bootbackup)
+8. `mkinitcpio -P && grub-mkconfig -o /boot/grub/grub.cfg`
+9. Reboot.
+
+#### C2 — snapper-rollback (same steps, automated)
+
+Requires `snapper-rollback` (AUR) and `/etc/snapper-rollback.conf` (installed by `./setup arch`).
+
+1. Boot Arch live ISO, unlock LUKS: `cryptsetup open /dev/<root_partition> luks_root`
+2. Edit config if device names differ on live ISO:
+
+   ```bash
+   sudo mkdir -p /btrfsroot
+   sudo nvim /etc/snapper-rollback.conf   # or copy from your backup
+   # mountpoint = /btrfsroot
+   # dev = /dev/mapper/luks_root
+   ```
+
+3. List snapshots (mount top-level first if `snapper` not available in live session):
+
+   ```bash
+   sudo mount /dev/mapper/luks_root /btrfsroot
+   sudo snapper -c root list   # if snapper installed in live ISO
+   # or: grep -r '<date>' /btrfsroot/@snapshots/*/info.xml
+   ```
+
+4. Run rollback (script mounts `dev` → `mountpoint`, replaces `@` from snapshot `N`):
+
+   ```bash
+   sudo snapper-rollback N
+   # Type CONFIRM when prompted
+   ```
+
+5. Mount restored system, `arch-chroot`, [restore `/boot`](#restore-boot-from-bootbackup), `mkinitcpio -P`, `grub-mkconfig`, reboot.
+
+**What snapper-rollback does *not* do:** copy `/.bootbackup` to `/boot`, regenerate initramfs, or fix fstab — those remain manual (steps 5+ above).
+
+### D — Restore `/home`
+
+Same pattern on the home volume: replace `@home` from `/home/.snapshots/N/snapshot` (live ISO or btrfs-assistant home config). `/boot` is unaffected.
+
+### Restore `/boot` from `/.bootbackup`
+
+After any `@` restore, ext4 `/boot` still reflects the **current** kernel tree until you copy a backup from the **restored** snapshot:
+
+```bash
+# List backups captured inside the running (or chrooted) system
+ls -lt /.bootbackup/
+
+# Prefer a *_post backup from before the failure, ideally matching snapshot date
+sudo rsync -a --delete /.bootbackup/YYYY_MM_DD_HH.MM.SS_post/ /boot/
+
+sudo mkinitcpio -P
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+If `/.bootbackup` is empty, backups only start after hooks are installed and a kernel-affecting `pacman` transaction runs once.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|----------------|-----|
+| Boot fails after restore | `/boot` not restored | rsync from `/.bootbackup/*_post/` (above) |
+| Empty `/.bootbackup` | Hooks missing or no kernel update since install | Install hooks; run `paru -S linux` (reinstall) — `mkinitcpio -P` alone does not trigger bootbackup hooks |
+| KDE/login fails from GRUB snapshot | Read-only `/var` | Add `grub-btrfs-overlayfs` to mkinitcpio HOOKS; regenerate initramfs |
+| `grub-btrfs-overlayfs` silent failure | `systemd` hook in mkinitcpio | Use `udev` hook instead (Arch Wiki) |
+| btrfs-assistant restore warning | `subvolid=` in `/etc/fstab` | Use `subvol=@` paths; backup fstab first |
+| No GRUB snapshot entries | `grub-btrfsd` not running or wrong path | Check `systemctl status grub-btrfsd`; override uses `--syslog /.snapshots` |
+| snap-pac snapshots missing `/boot` state | bootbackup runs after snap-pac post | Rename hook to `95-bootbackup_post.hook` (before `zz-snap-pac-post`) |
+| `snapper create-config` fails | `/.snapshots` already mounted from install | umount + rm, then follow [Configure Snapper](#configure-snapper) |

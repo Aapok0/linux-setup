@@ -1,0 +1,16 @@
+# Back up /boot after kernel-changing pacman transactions (after mkinitcpio, before snap-pac post).
+# Hook number 95: must sort before zz-snap-pac-post.hook so backups land inside post snapshots.
+# See: https://wiki.archlinux.org/title/System_backup#Snapshots_and_/boot_partition
+
+[Trigger]
+Operation = Upgrade
+Operation = Install
+Operation = Remove
+Type = Path
+Target = usr/lib/modules/*/vmlinuz
+
+[Action]
+Depends = rsync
+Description = Backing up post /boot...
+When = PostTransaction
+Exec = /usr/bin/bash -c 'rsync -a --mkpath --delete /boot/ "/.bootbackup/$(date +%Y_%m_%d_%H.%M.%S)_post"/'
