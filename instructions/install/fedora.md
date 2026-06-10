@@ -193,6 +193,7 @@ Works on **one disk**, **dual boot with Windows**, or **split across multiple di
 | `spool` | `/var/spool` | Spool data |
 | `tmp` | `/var/tmp` | Temp files |
 | `containers` | `/var/lib/containers` | Podman/container storage |
+| `docker` | `/var/lib/docker` | Docker Engine (Moby) storage |
 | `flatpak` | `/var/lib/flatpak` | Flatpak apps |
 | `plasmalogin` | `/var/lib/plasmalogin` | KDE Plasma Login Manager |
 | `libvirt` | `/var/lib/libvirt` | VM disk images |
@@ -242,7 +243,7 @@ Select **all** target disks under **Destination** (**Change destination** if nee
 
 | Disk | Contents |
 |------|----------|
-| **1 — system** | Shared **ESP** (dual boot) + optional **swap** + **FEDORA** btrfs with **system subvolumes only** — `root`, `cache`, `log`, `spool`, `tmp`, `containers`, `flatpak`, `plasmalogin`, `libvirt` (**no `home` / `media`**) |
+| **1 — system** | Shared **ESP** (dual boot) + optional **swap** + **FEDORA** btrfs with **system subvolumes only** — `root`, `cache`, `log`, `spool`, `tmp`, `containers`, `docker`, `flatpak`, `plasmalogin`, `libvirt` (**no `home` / `media`**) |
 | **2 — home** | One btrfs partition: subvolumes `home` → `/home`, `media` → `/home/Media` |
 
 **3 disks — media on separate disk**

@@ -153,7 +153,7 @@ _is_btrfs() {
 
 _btrfs_has_snapper_layout() {
     local subvol missing=()
-    local expected=(log cache plasmalogin media spool tmp containers flatpak libvirt)
+    local expected=(log cache plasmalogin media spool tmp containers docker flatpak libvirt)
 
     for subvol in "${expected[@]}"; do
         sudo btrfs subvolume list / 2>/dev/null | grep -qE " path ${subvol}$" || missing+=("$subvol")
