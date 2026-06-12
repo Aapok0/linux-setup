@@ -11,7 +11,7 @@ Target: **Fedora 44+** amd64, **Fedora KDE Plasma Spin** ISO. The installer is a
 | 1 | **Welcome** | Language, keyboard layout |
 | 2 | **Installation method** | Destination disk, install method (see below) |
 | 2b | **Storage editor** *(optional)* | ⋮ menu → **Launch storage editor** — manual partitioning via Cockpit Storage |
-| 3 | **Storage configuration** | **Encrypt my data** *(if not already set in storage editor)*, LUKS passphrase, keyboard layout at boot |
+| 3 | **Storage configuration** | **Guided install only:** **Encrypt my data**, LUKS passphrase, keyboard at boot. **Manual layout (storage editor):** no encryption here — set **LUKS** when creating partitions in the storage editor |
 | 4 | **Review and install** | Confirm layout, start install |
 
 **Installation method** options (under *How would you like to install?*):
@@ -241,6 +241,28 @@ Layout inspired by [SysGuides: Fedora 44 btrfs snapshot and rollback](https://sy
 > - **`flatpak`** rollback does not revert runtimes in `/var/lib/flatpak` — use Flatpak tools for app issues.
 > - **`.snapshots`** is created by `snapper create-config /` on first setup, not at install time.
 
+#### Encryption (storage editor)
+
+With **Mount point assignment** (manual layout), **Storage configuration** does **not** offer **Encrypt my data** — enable **LUKS** here when creating each partition, **before** btrfs subvolumes.
+
+1. When creating a partition (⋮ on free space → **Create partition**), set **Type** (`btrfs`, `ext4`, …)
+2. Set **Encryption** → **LUKS2** *(or LUKS1 only if you accept GRUB tradeoffs — see [LUKS1 vs LUKS2](#luks1-vs-luks2))*
+3. Enter **Passphrase** (use [Finnish keyboard](#finnish-keyboard) in the live session first)
+4. Enable **Store passphrase** if offered (helps the installer unlock during setup)
+5. **Create** the partition, then add btrfs **subvolumes** on the encrypted btrfs top-level (encryption wraps the whole partition, not individual subvolumes)
+
+| Partition | Encrypt? |
+|-----------|----------|
+| **ESP** (`/boot/efi`) | **No** — must stay unencrypted for UEFI boot |
+| **Fedora btrfs** (Option A system volume) | **Yes** for encrypted install |
+| **Separate `/home` disk/partition** | **Yes** if you want encrypted `/home` ([separate disk](#encrypted-home-on-a-separate-disk)) |
+| **swap** | Usually **no** (suspend with encrypted swap needs extra setup) |
+| **Windows / ntfs** | **No** |
+
+Dual boot: encrypt **Fedora partitions only**, not Windows or the shared ESP.
+
+Option A FDE (`/boot` on btrfs `root`): apply the [Anaconda patch](#before-install--anaconda-patch-live-iso) before install, then enable LUKS on the btrfs partition in the storage editor.
+
 #### Swap (optional — all layouts)
 
 Fedora defaults to **zram** swap (no partition). zram cannot hibernate.
@@ -309,7 +331,7 @@ Works on **one disk**, **dual boot with Windows**, or **split across multiple di
 
 **Common steps (all variants)**
 
-1. Create partitions and subvolumes per variant below (set **Mount point** on each subvolume in the storage editor)
+1. Create partitions per variant below — enable **LUKS** on btrfs (and other data) partitions in the storage editor when creating them ([Encryption](#encryption-storage-editor)); then create subvolumes (set **Mount point** on each)
 2. **Return to installation** (button in the storage editor)
 3. On **Installation method** → **How would you like to install?** → **Mount point assignment**
    - **Do not** choose **Use entire disk** — that wipes the disk and replaces your layout
@@ -318,7 +340,7 @@ Works on **one disk**, **dual boot with Windows**, or **split across multiple di
    - **Skip `/boot`:** Anaconda lists **`/boot`** as recommended — leave it **unassigned** or remove it (Option A has no `/boot` partition; do not create one to fill the slot)
    - **Reformat:** see [Reformat — when to choose yes or no](#reformat--when-to-choose-yes-or-no) — after storage editor, **no** for ESP, btrfs subvolumes, and swap
    - If Anaconda reports *no root partition defined*, assign `root` → `/` here
-4. Enable **LUKS** on btrfs partition(s) in the storage editor *or* [Storage configuration](#3-storage-configuration) — see [Full disk encryption](#full-disk-encryption-option-a)
+4. [Storage configuration](#3-storage-configuration) — skip **Encrypt my data** (not available for manual layout); continue to review. Post-install: [Full disk encryption](#full-disk-encryption-option-a) GRUB steps if using Option A FDE
 
 **Variant: single disk (Linux-only)**
 
@@ -397,9 +419,9 @@ Fedora guided equivalent: separate ext4 `/boot`, only `root` + `home` subvolumes
 
 **Common steps (all variants)**
 
-1. Create partitions and subvolumes per variant below (set mount points in the storage editor)
+1. Create partitions and subvolumes per variant below — **LUKS** in the storage editor when creating data partitions ([Encryption](#encryption-storage-editor)); set mount points on subvolumes
 2. **Return to installation** → **Mount point assignment** on the installation method screen
-3. Enable **LUKS** if encrypting (standard separate `/boot` layout — no [FDE patch](#full-disk-encryption-option-a) needed)
+3. [Storage configuration](#3-storage-configuration) — skip encryption (manual layout); separate `/boot` needs no [FDE patch](#full-disk-encryption-option-a)
 
 **Variant: single disk (Linux-only)**
 
@@ -467,9 +489,9 @@ Use when you prefer ext4 over btrfs.
 
 **Common steps (all variants)**
 
-1. Create partitions per variant below
+1. Create partitions per variant below — enable **LUKS2** in the storage editor when creating `/`, `/home`, and other data partitions ([Encryption](#encryption-storage-editor))
 2. **Return to installation** → **Mount point assignment**
-3. Enable **LUKS2** on `/` and `/home` (and other data partitions) if encrypting
+3. [Storage configuration](#3-storage-configuration) — skip encryption (manual layout)
 
 **Variant: single disk (Linux-only)**
 
@@ -518,13 +540,23 @@ cat /etc/crypttab
 
 ## 3. Storage configuration
 
-Skip or confirm encryption here if you already enabled **LUKS2** on the btrfs partition in the storage editor.
+Depends on how you partitioned in step 2.
 
-1. **Encrypt my data** — enable if the btrfs system partition is not yet encrypted (recommended on Linux-only installs; dual boot encrypts Fedora volumes only, not Windows)
-2. If enabling encryption (here or already done in storage editor):
-   - Set **passphrase** (typed with the layout active in the live session / installer — see [Live session](#live-session--before-the-installer) and step 1)
-   - Choose **keyboard layout during boot** (LUKS prompt; may default to US layout)
-3. Continue
+### Guided install (**Use entire disk** or **Share disk with Windows**)
+
+1. **Encrypt my data** — enable for encrypted install (Linux-only: whole disk; dual boot: Fedora volumes only, not Windows)
+2. Set **passphrase** (see [Live session](#live-session--before-the-installer) for keyboard layout)
+3. Choose **keyboard layout during boot** (LUKS prompt; may default to US layout)
+4. Continue
+
+### Manual layout (storage editor + **Mount point assignment**)
+
+**Encrypt my data** is **not** available — you cannot enable encryption on this screen. LUKS must already be set in the [storage editor](#encryption-storage-editor) when each partition was created.
+
+1. Continue through storage configuration (no encryption options to set)
+2. Confirm encrypted partitions show as LUKS in the summary on the next screen
+
+If you forgot encryption in the storage editor, go back to the storage editor or start the partition layout again — do not expect to add LUKS here.
 
 ## 4. Review and install
 
@@ -539,7 +571,7 @@ Skip or confirm encryption here if you already enabled **LUKS2** on the btrfs pa
 
 For Option A with **`/boot` inside encrypted root** — ESP stays unencrypted (`/boot/efi`); GRUB must unlock LUKS before reading boot files. Fedora’s default encrypted layout uses a **separate unencrypted `/boot`**; this layout does **not**.
 
-Enable LUKS in the storage editor or [Storage configuration](#3-storage-configuration). Dual boot: only the **Fedora btrfs partition** is encrypted.
+Enable LUKS in the [storage editor](#encryption-storage-editor) when creating the btrfs partition (**not** in [Storage configuration](#3-storage-configuration) — unavailable for manual layout). Dual boot: only the **Fedora btrfs partition** is encrypted.
 
 **Boot flow**
 
