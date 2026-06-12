@@ -71,10 +71,7 @@ main() {
         _info "No existing firewall service running."
         _info "Installing ufw and setting up firewall..."
         _install_pkg "ufw"
-        _info "Enabling firewall tool ufw..."
-        _echo_run sudo systemctl enable ufw
-        _info "Starting firewall tool ufw..."
-        _echo_run sudo systemctl start ufw
+        _ensure_systemd_enabled_now ufw
     fi
 
     _info "Adding workspace and dotfiles..."
@@ -102,11 +99,15 @@ main() {
     _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
     _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
 
-    _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
-    _echo_run steamtinkerlaunch compat add
+    if command -v steamtinkerlaunch &>/dev/null; then
+        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _echo_run steamtinkerlaunch compat add
+    else
+        _warn "steamtinkerlaunch not installed; skipping compat add"
+    fi
 
     _info "Installing extra tools via pip..."
-    _echo_run python3 -m pip install --user "${basic_packages_pip[@]}"
+    _install_pip_user_packages "${basic_packages_pip[@]}"
 
     _info "Installing pyenv for Python version management..."
     if ! command -v pyenv &> /dev/null; then
@@ -164,12 +165,9 @@ main() {
         _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'
         _echo_run sudo nala update
         _install_pkg "nordvpn"
-        _info "Creating nordvpn group and adding user"
-        _echo_run sudo groupadd -r nordvpn 2>/dev/null || true
-        _echo_run sudo gpasswd -a $USERNAME nordvpn
-        _info "Enabling and starting nordvpn service..."
-        _echo_run sudo systemctl enable nordvpnd.service
-        _echo_run sudo systemctl start nordvpnd.service
+        _ensure_group nordvpn
+        _ensure_user_in_group "$USERNAME" nordvpn
+        _ensure_systemd_enabled_now nordvpnd.service
         _info "NordVPN installed and configured"
         _info "Login with: nordvpn login --token \"<token_from_account_here>\""
     else

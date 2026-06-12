@@ -193,6 +193,104 @@ _check_firewall_service() {
     }
 }
 
+_ensure_group() {
+    local group=$1
+
+    if getent group "$group" &>/dev/null; then
+        _info "Group ${group} already exists"
+        return 0
+    fi
+
+    _info "Creating group ${group}..."
+    _echo_run sudo groupadd -r "$group"
+}
+
+_user_in_group() {
+    local user=$1
+    local group=$2
+
+    id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx "$group"
+}
+
+_ensure_user_in_group() {
+    local user=$1
+    local group=$2
+
+    if _user_in_group "$user" "$group"; then
+        _info "User ${user} already in group ${group}"
+        return 0
+    fi
+
+    if ! getent group "$group" &>/dev/null; then
+        _error "Group ${group} does not exist"
+        return 1
+    fi
+
+    _info "Adding ${user} to group ${group}..."
+    if _echo_run sudo usermod -aG "$group" "$user"; then
+        return 0
+    fi
+
+    _echo_run sudo gpasswd -a "$user" "$group"
+}
+
+_ensure_systemd_unit() {
+    local unit=$1
+    local also_start=${2:-false}
+
+    if systemctl is-enabled "$unit" &>/dev/null; then
+        _info "systemd unit ${unit} already enabled"
+    else
+        _info "Enabling systemd unit ${unit}..."
+        _echo_run sudo systemctl enable "$unit"
+    fi
+
+    if [ "$also_start" = true ]; then
+        if systemctl is-active --quiet "$unit"; then
+            _info "systemd unit ${unit} already active"
+        else
+            _info "Starting systemd unit ${unit}..."
+            _echo_run sudo systemctl start "$unit"
+        fi
+    fi
+}
+
+_ensure_systemd_enabled_now() {
+    _ensure_systemd_unit "$1" true
+}
+
+_pacman_multilib_enabled() {
+    [ -f /etc/pacman.conf ] \
+        && grep -A1 '^\[multilib\]' /etc/pacman.conf | grep -q '^Include = '
+}
+
+_ensure_pacman_multilib() {
+    if _pacman_multilib_enabled; then
+        _info "multilib repository already enabled"
+        return 0
+    fi
+
+    _info "Enabling multilib repository..."
+    _echo_run sudo sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
+}
+
+_pip_user_pkg_installed() {
+    python3 -m pip show "$1" &>/dev/null
+}
+
+_install_pip_user_packages() {
+    local pkg
+
+    for pkg in "$@"; do
+        if _pip_user_pkg_installed "$pkg"; then
+            _info "pip package ${pkg} already installed"
+            continue
+        fi
+        _out "Installing pip package ${pkg}"
+        _echo_run python3 -m pip install --user "$pkg"
+    done
+}
+
 _setup_git_config() {
     local config_dir="$HOME/.config/git"
     local config_file="$config_dir/config.local"

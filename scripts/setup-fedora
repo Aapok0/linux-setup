@@ -132,12 +132,9 @@ gpgcheck=1
 enabled=1
 EOF
     _install_pkg "nordvpn"
-    _info "Creating nordvpn group and adding user"
-    _echo_run sudo groupadd -r nordvpn 2>/dev/null || true
-    _echo_run sudo usermod -aG nordvpn "$USERNAME"
-    _info "Enabling and starting nordvpn service..."
-    _echo_run sudo systemctl enable nordvpnd.service
-    _echo_run sudo systemctl start nordvpnd.service
+    _ensure_group nordvpn
+    _ensure_user_in_group "$USERNAME" nordvpn
+    _ensure_systemd_enabled_now nordvpnd.service
     _info "NordVPN installed and configured"
     _info "Login with: nordvpn login --token \"<token_from_account_here>\""
 }
@@ -406,10 +403,7 @@ main() {
         _info "No existing firewall service running."
         _info "Installing ufw and setting up firewall..."
         _install_pkg "ufw"
-        _info "Enabling firewall tool ufw..."
-        _echo_run sudo systemctl enable ufw
-        _info "Starting firewall tool ufw..."
-        _echo_run sudo systemctl start ufw
+        _ensure_systemd_enabled_now ufw
     fi
 
     _info "Adding workspace and dotfiles..."

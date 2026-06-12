@@ -237,8 +237,7 @@ main() {
         _set_ssh_remote "${REPO_ROOT}"
     fi
 
-    _info "Enabling multilib repository for pacman..."
-    _echo_run sudo sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
+    _ensure_pacman_multilib
     _echo_run sudo pacman -Syy
     _info "Installing paru AUR helper..."
     if ! command -v paru &> /dev/null; then
@@ -263,10 +262,7 @@ main() {
         _info "No existing firewall service running."
         _info "Installing ufw and setting up firewall..."
         _install_pkg "ufw" "--skipreview --noconfirm"
-        _info "Enabling firewall tool ufw..."
-        _echo_run sudo systemctl enable ufw
-        _info "Starting firewall tool ufw..."
-        _echo_run sudo systemctl start ufw
+        _ensure_systemd_enabled_now ufw
     fi
 
     _info "Adding workspace and dotfiles..."
@@ -306,14 +302,16 @@ main() {
         _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
         _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     fi
-    _info "Creating nordvpn group and adding user"
-    _echo_run sudo groupadd -r nordvpn
-    _echo_run sudo gpasswd -a $USERNAME nordvpn
-    _info "Enabling and starting openvpn"
-    _echo_run sudo systemctl enable --now nordvpnd.service
+    _ensure_group nordvpn
+    _ensure_user_in_group "$USERNAME" nordvpn
+    _ensure_systemd_enabled_now nordvpnd.service
 
-    _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
-    _echo_run steamtinkerlaunch compat add
+    if command -v steamtinkerlaunch &>/dev/null; then
+        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _echo_run steamtinkerlaunch compat add
+    else
+        _warn "steamtinkerlaunch not installed; skipping compat add"
+    fi
 
     _info "Setup completed. Log saved to: ${LOGFILE}"
 }
