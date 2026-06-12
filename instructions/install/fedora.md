@@ -18,7 +18,7 @@ Target: **Fedora 44+** amd64, **Fedora KDE Plasma Spin** ISO. The installer is a
 
 - **Share disk with other operating systems** — dual boot; uses unallocated space or reclaim dialog
 - **Use entire disk** — wipe selected disk, automatic btrfs layout
-- **Mount point assignment** — assign existing partitions to mount points (`/`, `/boot`, `/boot/efi`, …)
+- **Mount point assignment** — assign existing partitions/subvolumes to mount points (`/`, `/boot/efi`, …). **Use this after the [storage editor](#storage-editor-manual-layouts)** — there is no separate “use configured storage” option.
 
 If Fedora is already on the disk, a **Reinstall Fedora** option may appear at the top (fresh install, keeps `/home` data).
 
@@ -161,8 +161,10 @@ For btrfs + Snapper on unallocated space, use the storage editor and follow [Opt
 Use when partitions are already laid out (external tool, previous Linux install, or after using the storage editor):
 
 1. **How would you like to install?** → **Mount point assignment**
-2. Assign mandatory mount points starting with **`/`** (root), then **`/boot`**, then **`/boot/efi`**
-3. Add optional mount points (`/home`, swap, …) as needed
+2. Assign mandatory mount points starting with **`/`** (root), then **`/boot/efi`**
+   - **Option A:** no separate **`/boot`** partition — remove or leave empty the installer’s recommended **`/boot`** slot; kernels live on the `root` subvolume (`/boot` is a directory on `/`, not its own mount)
+   - **Option A-simple / B / C:** assign **`/boot`** ext4 as well
+3. Add optional mount points (`/home`, `/var/cache`, swap, …) as needed
 4. Continue to [Storage configuration](#3-storage-configuration)
 
 For btrfs + Snapper or custom layouts, use the [storage editor](#storage-editor-manual-layouts) from step 2 before continuing to step 3.
@@ -224,7 +226,7 @@ Works on **one disk**, **dual boot with Windows**, or **split across multiple di
 | `swap` | RAM + √RAM *(optional)* | linux-swap | — |
 | `FEDORA` | remainder | btrfs | *(subvolumes below)* |
 
-**Subvolumes** (create under the btrfs partition via **Create subvolume** on top-level):
+**Subvolumes** (create under the btrfs partition via **Create subvolume** on the btrfs top-level row). For each subvolume, set **Name** and **Mount point** in the dialog (Anaconda only installs subvolumes that have a mount point):
 
 | Subvolume name | Mount point | Purpose |
 |----------------|-------------|---------|
@@ -250,21 +252,27 @@ Works on **one disk**, **dual boot with Windows**, or **split across multiple di
 
 **Common steps (all variants)**
 
-1. Create partitions and subvolumes per variant below
-2. **Return to installation** → **Use configured storage**
-3. Enable **LUKS** on btrfs partition(s) in the storage editor *or* [Storage configuration](#3-storage-configuration) — see [Full disk encryption](#full-disk-encryption-option-a)
+1. Create partitions and subvolumes per variant below (set **Mount point** on each subvolume in the storage editor)
+2. **Return to installation** (button in the storage editor)
+3. On **Installation method** → **How would you like to install?** → **Mount point assignment**
+   - **Do not** choose **Use entire disk** — that wipes the disk and replaces your layout
+   - **Do not** rely on **Share disk with other operating systems** alone after a custom storage-editor layout — it uses guided reclaim, not your subvolumes
+   - In **Mount point assignment**, verify every subvolume is bound: start with **`/`** on the `root` subvolume, then **`/boot/efi`** on ESP, then `/home`, `/var/cache`, `/var/log`, …
+   - **Skip `/boot`:** Anaconda lists **`/boot`** as recommended — leave it **unassigned** or remove it (Option A has no `/boot` partition; do not create one to fill the slot)
+   - If Anaconda reports *no root partition defined*, assign `root` → `/` here
+4. Enable **LUKS** on btrfs partition(s) in the storage editor *or* [Storage configuration](#3-storage-configuration) — see [Full disk encryption](#full-disk-encryption-option-a)
 
 **Variant: single disk (Linux-only)**
 
 1. Initialize disk → **GPT**; create **ESP**, optional **swap**, **FEDORA** btrfs
-2. Create all subvolumes on `FEDORA`
+2. Create all subvolumes on `FEDORA` (each with its mount point)
 
 **Variant: dual boot with Windows (same disk)**
 
 Complete [Windows dual boot prep](#windows-dual-boot--prepare-before-partitioning) first.
 
 1. **Do not** use **Use entire disk** or reinitialize the Windows disk
-2. **Share disk with other operating systems** or **Mount point assignment** after storage editor
+2. After the storage editor → **Mount point assignment** (preserve Windows partitions; reuse ESP → `/boot/efi` without reformat)
 3. Storage editor — **unallocated space only**; preserve Windows (`ntfs`) partitions
 4. **Reuse existing ESP** → `/boot/efi`, **do not reformat**
 5. Create **swap** *(optional)* + **FEDORA** btrfs in unallocated space; all subvolumes on `FEDORA`
@@ -331,8 +339,8 @@ Fedora guided equivalent: separate ext4 `/boot`, only `root` + `home` subvolumes
 
 **Common steps (all variants)**
 
-1. Create partitions and subvolumes per variant below
-2. **Return to installation** → **Use configured storage**
+1. Create partitions and subvolumes per variant below (set mount points in the storage editor)
+2. **Return to installation** → **Mount point assignment** on the installation method screen
 3. Enable **LUKS** if encrypting (standard separate `/boot` layout — no [FDE patch](#full-disk-encryption-option-a) needed)
 
 **Variant: single disk (Linux-only)**
@@ -345,7 +353,7 @@ Fedora guided equivalent: separate ext4 `/boot`, only `root` + `home` subvolumes
 Complete [Windows dual boot prep](#windows-dual-boot--prepare-before-partitioning) first.
 
 1. **Do not** use **Use entire disk** or reinitialize the Windows disk
-2. **Share disk with other operating systems** or **Mount point assignment** after storage editor
+2. After the storage editor → **Mount point assignment**
 3. Storage editor — **unallocated space only**; preserve Windows (`ntfs`) partitions
 4. **Reuse existing ESP** → `/boot/efi`, **do not reformat**
 5. Create **`/boot`**, optional **swap**, and btrfs partition in unallocated space; subvolumes `root`, `home`
@@ -402,7 +410,7 @@ Use when you prefer ext4 over btrfs.
 **Common steps (all variants)**
 
 1. Create partitions per variant below
-2. **Return to installation** → **Use configured storage**
+2. **Return to installation** → **Mount point assignment**
 3. Enable **LUKS2** on `/` and `/home` (and other data partitions) if encrypting
 
 **Variant: single disk (Linux-only)**
@@ -415,7 +423,7 @@ Use when you prefer ext4 over btrfs.
 Complete [Windows dual boot prep](#windows-dual-boot--prepare-before-partitioning) first.
 
 1. **Do not** use **Use entire disk** or reinitialize the Windows disk
-2. **Share disk with other operating systems** or **Mount point assignment** after storage editor
+2. After the storage editor → **Mount point assignment**
 3. Storage editor — **unallocated space only**; preserve Windows (`ntfs`) partitions
 4. **Reuse existing ESP** → `/boot/efi`, **do not reformat**
 5. Create **`/boot`**, optional **swap**, **`/`**, **`/home`** in unallocated space
