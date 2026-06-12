@@ -1,0 +1,15 @@
+# Snapper integration with libdnf5 (DNF5 transactions).
+# Adapted from SysGuides sysguides-snapper-fedora (https://github.com/SysGuides/sysguides-snapper-fedora)
+# by Madhu Desai / https://sysguides.com — used here with attribution.
+
+# Create PRE snapshot
+pre_transaction::::/usr/local/bin/snapper-pre.sh ${pid}
+
+# Capture GUI package info (incoming packages)
+pre_transaction:*:in::/usr/local/bin/snapper-gui-pkg.sh ${pid} ${pkg.action} ${pkg.name}
+
+# Capture GUI package info (outgoing packages)
+pre_transaction:*:out::/usr/local/bin/snapper-gui-pkg.sh ${pid} ${pkg.action} ${pkg.name}
+
+# Create POST snapshot (with WAL fix)
+post_transaction::::/usr/local/bin/snapper-post.sh ${pid}

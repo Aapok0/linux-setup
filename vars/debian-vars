@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 
 # NOTE: The following packages are handled by justfile recipes (justfile install) in the dotfiles repository:
-# Core tools: git, curl, stow, vim, neovim, tmux, zsh, fzf, fd, ripgrep, xclip, wl-clipboard
-# Development: nodejs, npm, python, build tools, cmake
-# CLI tools: eza, bat, git-delta, zoxide, starship, ripgrep, fd, fzf, btop, entr, jq, thefuck, tldr
-# Utilities: ffmpeg, p7zip, poppler, imagemagick
+# Core tools: git, curl, stow, vim, neovim, tmux, zsh, fzf, fd-find, ripgrep, xclip, wl-clipboard
+# Development: nodejs, npm, python3, build-essential, cmake
+# CLI tools: eza, bat, git-delta, zoxide, starship, btop, entr, jq, thefuck, tldr
+# Utilities: ffmpeg, p7zip-full, poppler-utils, imagemagick
 # DevOps: terraform, ansible, kubectl, helm
 # Shell: zsh-plugins, atuin history import, shell switching
 # Applications: lazygit, yazi, atuin
-# Font: ttf-jetbrains-mono-nerd (JetBrainsMono Nerd Font)
+# Font: JetBrainsMono Nerd Font (downloaded from nerd-fonts releases)
 # Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
 # See: https://github.com/Aapok0/dotfiles
 #
 # Packages kept here are those needed BEFORE running justfile or not included in justfile
+
+apt_tools=(
+    "nala"
+    "apt-listbugs"
+    "apt-listchanges"
+    "apt-file"
+)
 
 basic_packages=(
     "git"
@@ -20,82 +27,72 @@ basic_packages=(
     "curl"          # Needed for various installations
     "wget"
     "sed"
-    "awk"
+    "gawk"
     "grep"
     "rsync"
-    "inetutils" # telnet
-    "openbsd-netcat"
-    "bind"
-    "openssh"
+    "inetutils-tools"
+    "netcat-openbsd"
+    "dnsutils"
+    "openssh-client"
     "unzip"
     "unrar"
-    "pyenv"
-    "tk" # pyenv dependency
+    "python3-tk"
     "pnpm"
     "fastfetch"
     "exfatprogs"
-    "ntfs-3g"
     "smartmontools"
     "fwupd"
     "snapper"
     "btrfs-progs"
-    "snap-pac"
-    "grub-btrfs"
-    "inotify-tools"
 )
 
-basic_packages_aur=(
+basic_packages_pip=(
     "azure-cli"
-    "tfswitch"
-    #"flyctl"
-    "python-pipx"
-    "nvm"
+    "python3-pip"
+    "python3-pipx"
+    "protonup-qt"
 )
 
 apps=(
     "kitty"
-    "firefox-developer-edition"
+    "firefox-esr"
     "discord"
     "thunderbird"
     "mpv"
     "vlc"
-    "qalculator-qt"
+    "qalculate-gtk"
     "openrgb"
-    "virtualbox virtualbox-host-modules-arch virtualbox-host-modules-lts virtualbox-guest-utils virtualbox-guest-iso"
+    "virtualbox"
+    "virtualbox-guest-utils"
     "qbittorrent"
 )
 
-apps_aur=(
-    "spotify"
+apps_extra=(
+    "spotify-client"
     "bitwarden"
-    "nordvpn-bin"
     "signal-desktop"
-    "whatsapp-linux-desktop-bin"
-    "btrfs-assistant"
-    "onlyoffice-bin"
-    #"vr-video-player"
-    #"xr-video-player-git"
-    "vk-hdr-layer-kwin6-git" # for mpv hdr
+    "onlyoffice-desktopeditors"
 )
 
 gaming_packages=(
     "steam"
     "lutris"
-    "mangohud goverlay"
-    "lib32-mangohud"
-    "gamescope"
-    "wine wine-mono winetricks"
+    "wine"
+    "wine32"
+    "wine-development"
+    "winetricks"
+    "mangohud"
+    "gamemode"
+    "joystick"
 )
 
-gaming_packages_aur=(
+gaming_packages_extra=(
+    "protontricks"
     "steamtinkerlaunch"
-    "protontricks protonup-qt"
-    "xone-dkms"
-    "xone-dongle-firmware"
-    #"runelite"
 )
 
 kde_packages=(
+    "kde-full"
     "kscreen"
     "kcron"
     "ark"
@@ -105,7 +102,6 @@ kde_packages=(
     "bluedevil"
     "ibus"
     "dolphin"
-    "dolphin-plugins"
     "kdegraphics-thumbnailers"
     "ffmpegthumbs"
     "flatpak"
@@ -113,4 +109,4 @@ kde_packages=(
     "spectacle"
 )
 
-kde_packages_aur=()
+kde_packages_extra=()

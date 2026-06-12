@@ -1,0 +1,16 @@
+# Back up /boot before kernel-changing pacman transactions.
+# Hook number 55: runs before snap-pac pre (05) captures state; pre backup is optional safety net.
+# See: https://wiki.archlinux.org/title/System_backup#Snapshots_and_/boot_partition
+
+[Trigger]
+Operation = Upgrade
+Operation = Install
+Operation = Remove
+Type = Path
+Target = usr/lib/modules/*/vmlinuz
+
+[Action]
+Depends = rsync
+Description = Backing up pre /boot...
+When = PreTransaction
+Exec = /usr/bin/bash -c 'rsync -a --mkpath --delete /boot/ "/.bootbackup/$(date +%Y_%m_%d_%H.%M.%S)_pre"/'

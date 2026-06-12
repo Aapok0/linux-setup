@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+# NOTE: The following packages are handled by justfile recipes (justfile install) in the dotfiles repository:
+# Core tools: git, curl, stow, vim, neovim, tmux, zsh, fzf, fd, ripgrep, xclip, wl-clipboard
+# Development: nodejs, npm, python, build tools, cmake
+# CLI tools: eza, bat, git-delta, zoxide, starship, btop, entr, jq, thefuck, tldr
+# Utilities: ffmpeg, p7zip, poppler, imagemagick
+# DevOps: terraform, ansible, kubectl, helm
+# Shell: zsh-plugins, atuin history import, shell switching
+# Applications: lazygit, yazi, atuin
+# Font: JetBrainsMono Nerd Font (downloaded from nerd-fonts releases)
+# Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
+# See: https://github.com/Aapok0/dotfiles
+#
+# Packages kept here are those needed BEFORE running justfile or not included in justfile
+#
+# Package source preference on Fedora:
+#   1. Fedora official repos (dnf_packages, dnf_apps, dnf_gaming, dnf_kde)
+#   2. RPM Fusion free / nonfree (rpmfusion_*_packages)
+#   3. Flatpak (flatpak_apps) — preferred over COPR for desktop apps; updates via flatpak
+#   4. COPR — avoid when a Flatpak or RPM Fusion package exists
+#
+# RPM Fusion:
+#   free    — free software Fedora cannot ship (codec libs, some media players, etc.)
+#   nonfree — proprietary/redistributable-but-not-open software (NVIDIA drivers, Steam, VirtualBox)
+
+dnf_tools=(
+    "dnf-plugins-core"
+    "rpmconf"
+    "needs-restarting"
+)
+
+dnf_packages=(
+    "git"
+    "just"
+    "curl"
+    "wget"
+    "sed"
+    "gawk"
+    "grep"
+    "rsync"
+    "inetutils"
+    "nmap-ncat"
+    "bind-utils"
+    "openssh-clients"
+    "unzip"
+    "unrar"
+    "python3-tkinter"
+    "nodejs-pnpm"
+    "fastfetch"
+    "exfatprogs"
+    "fuse-exfat"
+    "smartmontools"
+    "fwupd"
+    "btrfs-assistant"
+    "snapper"
+    "btrfs-progs"
+)
+
+pip_packages=(
+    "azure-cli"
+)
+
+dnf_apps=(
+    "kitty"
+    "firefox"
+    "thunderbird"
+    "mpv"
+    "vlc"
+    "qalculate-gtk"
+    "qbittorrent"
+    "onlyoffice-desktopeditors"
+)
+
+dnf_gaming=(
+    "lutris"
+    "wine"
+    "winetricks"
+    "mangohud"
+    "gamemode"
+    "joystick"
+    "protontricks"
+)
+
+dnf_kde=(
+    "kscreen"
+    "kcron"
+    "ark"
+    "plasma-nm"
+    "plasma-pa"
+    "power-profiles-daemon"
+    "bluedevil"
+    "ibus"
+    "dolphin"
+    "dolphin-plugins"
+    "kdegraphics-thumbnailers"
+    "ffmpegthumbs"
+    "flatpak"
+    "plasma-discover"
+    "spectacle"
+)
+
+rpmfusion_free_packages=(
+)
+
+rpmfusion_nonfree_packages=(
+    "discord"
+    "steam"
+    # "VirtualBox"
+)
+
+flatpak_apps=(
+    "com.spotify.Client"
+    "com.bitwarden.desktop"
+    "org.signal.Signal"
+    "net.batchichi.ProtonUp-Qt"
+    "org.openrgb.OpenRGB"
+    # "io.github.steamtinkerlaunch.steamtinkerlaunch"
+)

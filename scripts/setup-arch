@@ -1,377 +1,319 @@
 #!/usr/bin/env bash
 
-###############
-## Variables ##
-###############
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
 
-# Arch specific variables (packages)
-source vars/arch-vars
+set -uo pipefail
 
-# Current user
-username=$1
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+init_logging "setup"
 
-# Whether to install and setup ufw firewall
-setup_ufw=true
+source "${REPO_ROOT}/vars/arch-vars"
+USERNAME=$1
+SETUP_UFW=true
+SETUP_BTRFS_SNAPPER=true
 
-###############
-## Functions ##
-###############
+_pkg_is_installed() {
+    paru -Qs "$1" | grep -q "local.*$1 "
+}
 
-# Check, if firewall tool is enabled
- _check_firewall_service () {
-    if command -v $2 &> /dev/null; then
-        if systemctl is-active --quiet $1; then
-            setup_ufw=false
-            echo "[SETUP_INFO] : Service $1 is already installed and enabled. Check its rules manually after this scripts has run."; sleep 6
-        fi
+_install_pkg() {
+    _pkg_is_installed "$1" && {
+        _info "Package $1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run paru "${2:---skipreview --noconfirm}" -S "$1"
+}
+
+_install_packages() {
+    local category="$1"
+    shift
+    local packages=("$@")
+    [ -n "$category" ] && [ "$category" != "." ] && _info "Installing $category..."
+    for pkg in "${packages[@]}"; do
+        _pkg_is_installed "$pkg" && {
+            _info "Package $pkg already installed"
+            continue
+        }
+        _out "Installing $pkg"
+        _echo_run paru --skipreview -S "$pkg"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Btrfs + Snapper (Arch Wiki suggested layout)
+# ---------------------------------------------------------------------------
+
+_is_btrfs() {
+    local path="${1:-/}"
+    findmnt -n -o FSTYPE "$path" 2>/dev/null | grep -qx btrfs
+}
+
+_setup_bootbackup_hooks() {
+    local hooks_dir="${REPO_ROOT}/config/arch/pacman/hooks"
+    local hook
+
+    [ -d "$hooks_dir" ] || {
+        _error "Missing ${hooks_dir}"
+        return 1
+    }
+
+    _info "Installing /boot backup pacman hooks (→ /.bootbackup)..."
+    for hook in 55-bootbackup_pre.hook 95-bootbackup_post.hook; do
+        [ -f "${hooks_dir}/${hook}" ] || {
+            _error "Missing ${hooks_dir}/${hook}"
+            return 1
+        }
+        _echo_run sudo install -Dm644 "${hooks_dir}/${hook}" "/etc/pacman.d/hooks/${hook}"
+    done
+}
+
+_setup_snapper_updatedb() {
+    if grep -q '^PRUNENAMES' /etc/updatedb.conf; then
+        grep -q '\.snapshots' /etc/updatedb.conf && return 0
+        _echo_run sudo sed -i 's|^PRUNENAMES *= *"|PRUNENAMES = ".snapshots |' /etc/updatedb.conf
+    else
+        _echo_run bash -c "echo 'PRUNENAMES = \".snapshots\"' | sudo tee -a /etc/updatedb.conf"
     fi
 }
 
-# Check, if a package is installed
-_pkg_is_installed () {
-    if [ -n "$(sudo pacman -Qs "$1" | grep "local" | grep "$1 ")" ]; then
-        true
-    else
-        false
+_snapper_config_exists() {
+    local config="$1"
+    [ -f "/etc/snapper/configs/${config}" ]
+}
+
+_setup_snapper_config_for_mount() {
+    local config="$1"
+    local mount_path="$2"
+    local snapshots_mount="$3"
+
+    if _snapper_config_exists "$config"; then
+        _info "Snapper config '${config}' already present"
+        return 0
+    fi
+
+    _info "Creating Snapper config '${config}' for ${mount_path}..."
+
+    if mountpoint -q "$snapshots_mount" 2>/dev/null; then
+        _echo_run sudo umount "$snapshots_mount"
+    fi
+    if [ -e "$snapshots_mount" ]; then
+        _echo_run sudo rm -rf "$snapshots_mount"
+    fi
+
+    _echo_run sudo snapper -c "$config" create-config "$mount_path"
+
+    if sudo btrfs subvolume show "$snapshots_mount" &>/dev/null; then
+        _echo_run sudo umount "$snapshots_mount" 2>/dev/null || true
+        _echo_run sudo btrfs subvolume delete "$snapshots_mount"
+    fi
+
+    _echo_run sudo mkdir -p "$snapshots_mount"
+    _echo_run sudo mount -a
+    _echo_run sudo chmod 750 "$snapshots_mount"
+}
+
+_setup_snapper_configs() {
+    _setup_snapper_config_for_mount root / /.snapshots
+
+    if _is_btrfs /home; then
+        _setup_snapper_config_for_mount home /home /home/.snapshots
+    fi
+
+    _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
+
+    if _is_btrfs /home && _snapper_config_exists home; then
+        _echo_run sudo snapper -c home set-config \
+            "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes TIMELINE_CREATE=no
     fi
 }
 
-# Backup config directory, if it already exists, and stow config
-_config_setup () {
-    echo "[SETUP_INFO] : Setting up $1 configuration..."; sleep 2
-    if [ -d "$HOME/.config/$1" ]; then
-        if [ -d "$HOME/.config/$1.bak" ]; then
-            read -p "Backup of $HOME/.config/$1 directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-                rm -rf $HOME/.config/$1.bak
-                mv $HOME/.config/$1 $HOME/.config/$1.bak
-            fi
-        else
-            mv $HOME/.config/$1 $HOME/.config/$1.bak
-            echo "[SETUP_INFO] : Found existing configuration directory for $1. Backed it up as $HOME/.config/$1.bak."; sleep 4
-        fi
+_setup_snapper_rollback() {
+    local src="${REPO_ROOT}/config/arch/snapper-rollback.conf"
+    local root_src tmp
+
+    _install_pkg "snapper-rollback" "--skipreview --noconfirm"
+
+    [ -f "$src" ] || {
+        _warn "Missing ${src}; configure /etc/snapper-rollback.conf manually"
+        return 0
+    }
+
+    if [ -f /etc/snapper-rollback.conf ]; then
+        _info "snapper-rollback.conf already present"
+        return 0
     fi
-    echo "[SETUP_INFO] : Linking $1 configuration to $HOME/.config with stow..."; sleep 3
-    stow -vRt $HOME $1
+
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+    root_src=${root_src%%\[*}
+
+    _info "Installing /etc/snapper-rollback.conf (dev=${root_src:-unset})..."
+    tmp=$(mktemp)
+    sed "s|^#dev = .*|dev = ${root_src}|" "$src" > "$tmp"
+    if [ -z "$root_src" ]; then
+        _warn "Could not detect btrfs device for / — edit dev= in /etc/snapper-rollback.conf"
+    fi
+    _echo_run sudo install -Dm644 "$tmp" /etc/snapper-rollback.conf
+    rm -f "$tmp"
 }
 
-#######################
-## ARCH SETUP SCRIPT ##
-#######################
-
-echo "[SETUP_INFO] : Setting up environment for an arch based distribution."; sleep 3
-
-# Syncing package databases and upgrading packages
-echo "[SETUP_INFO] : Syncing package databases and upgrading system packages with pacman..."; sleep 3
-sudo pacman -Syu --noconfirm
-echo "[SETUP_INFO] : Syncing package databases and upgrading system packages with yay..."; sleep 3
-yay -Syu --noconfirm
-
-# Firewall
-echo "[SETUP_INFO] : Checking, if there's an existing firewall service running..."; sleep 3
-_check_firewall_service "ufw" "ufw"
-_check_firewall_service "nftables" "nft"
-_check_firewall_service "firewalld" "firewalld-cmd"
-if $setup_ufw; then
-    echo "[SETUP_INFO] : Installing ufw and setting up firewall..."; sleep 3
-    if ! _pkg_is_installed "ufw"; then
-        sudo pacman -S --noconfirm ufw
-    else
-        echo "[SETUP_INFO] : Firewall tool ufw already installed..."; sleep 2
+_setup_mkinitcpio_overlayfs() {
+    if grep -q 'grub-btrfs-overlayfs' /etc/mkinitcpio.conf 2>/dev/null; then
+        _info "mkinitcpio grub-btrfs-overlayfs hook already configured"
+        return 0
     fi
-    echo "[SETUP_INFO] : Enabling firewall tool ufw..."; sleep 2
-    sudo systemctl enable ufw
-    echo "[SETUP_INFO] : Starting firewall tool ufw..."; sleep 2
-    sudo systemctl start ufw
-fi
 
-# Workspace and dotfiles
-if [ -d "$HOME/Workspace" ]; then
-    echo "[SETUP_INFO] : Workspace directory exists in ~/Workspace."; sleep 3
-else
-    echo "[SETUP_INFO] : Creating workspace directory as ~/Workspace..."; sleep 3
-    mkdir $HOME/Workspace
-fi
-echo "[SETUP_INFO] : Cloning dotfiles repository to workspace..."; sleep 3
-if [ -d "$HOME/Workspace/dotfiles" ]; then
-    echo "[SETUP_INFO] : Repository dotfiles already cloned to workspace."; sleep 3
-else
-    git clone https://github.com/Aapok0/dotfiles.git $HOME/Workspace/dotfiles
-fi
-
-# Move to dotfiles directory for stow
-echo "[SETUP_INFO] : Moving to dotfiles directory for stow..."; sleep 3
-cd $HOME/Workspace/dotfiles
-
-# Install and setup display manager
-echo "[SETUP_INFO] : Installing and setting up display manager lightdm..."; sleep 3
-if [ -f "/etc/systemd/system/display-manager.service" ]; then
-    display_manager="$(grep 'ExecStart=' /etc/systemd/system/display-manager.service | awk -F '/' '{print $NF}')"
-    if [ $display_manager != "lightdm" ]; then
-        if ! _pkg_is_installed "lightdm"; then
-            echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
-            sudo pacman -S --noconfirm lightdm
-        else
-            echo "[SETUP_INFO] : Display manager lightdm already installed..."; sleep 2
-        fi
-        if ! _pkg_is_installed "lightdm-slick-greeter"; then
-            echo "[SETUP_INFO] : Installing lightdm slick greeter..."
-            sudo pacman -S --noconfirm lightdm-slick-greeter
-        else
-            echo "[SETUP_INFO] : Lightdm slick greeter already installed..."; sleep 2
-        fi
-        echo "[SETUP_INFO] : Disabling display manager $display_manager..."; sleep 2
-        sudo systemctl disable $display_manager
-        echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
-        sudo systemctl enable lightdm
-    else
-        if ! sudo systemctl is-enabled lightdm > /dev/null; then
-            echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
-            sudo systemctl enable lightdm
-        else
-            echo "[SETUP_INFO] : Display manager lightdm is already enabled..."; sleep 2
-        fi
+    if grep -qE 'HOOKS=.*systemd' /etc/mkinitcpio.conf 2>/dev/null; then
+        _warn "mkinitcpio uses systemd hook — grub-btrfs-overlayfs requires udev (see Arch Wiki Snapper)"
     fi
-else
-    if ! _pkg_is_installed "lightdm"; then
-        echo "[SETUP_INFO] : Installing display manager lightdm..."; sleep 3
-        sudo pacman -S --noconfirm lightdm
+
+    _info "Adding grub-btrfs-overlayfs hook to mkinitcpio.conf..."
+    _echo_run sudo cp /etc/mkinitcpio.conf /etc/mkinitcpio.conf.bkp
+    _echo_run sudo sed -i 's/\(HOOKS=(.*\))/\1 grub-btrfs-overlayfs)/' /etc/mkinitcpio.conf
+    _echo_run sudo mkinitcpio -P
+}
+
+_setup_grub_btrfs() {
+    if systemctl is-enabled grub-btrfsd.service &>/dev/null; then
+        _info "grub-btrfsd already enabled"
     else
-        echo "[SETUP_INFO] : Display manager lightdm already installed..."; sleep 2
+        _info "Enabling grub-btrfsd (watches /.snapshots, updates GRUB menu)..."
+        local dropin_dir="/etc/systemd/system/grub-btrfsd.service.d"
+        _echo_run sudo mkdir -p "$dropin_dir"
+        _echo_run sudo tee "${dropin_dir}/override.conf" >/dev/null <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/grub-btrfsd --syslog /.snapshots
+EOF
+        _echo_run sudo systemctl daemon-reload
+        _echo_run sudo systemctl enable --now grub-btrfsd.service
     fi
-    if ! _pkg_is_installed "lightdm-slick-greeter"; then
-        echo "[SETUP_INFO] : Installing lightdm slick greeter..."
-        sudo pacman -S --noconfirm lightdm-slick-greeter
+
+    if [ -f /boot/grub/grub.cfg ]; then
+        _echo_run sudo grub-mkconfig -o /boot/grub/grub.cfg
+    fi
+}
+
+_setup_snapper_timers() {
+    _echo_run sudo systemctl enable --now snapper-timeline.timer
+    _echo_run sudo systemctl enable --now snapper-cleanup.timer
+}
+
+_setup_btrfs_snapper() {
+    [ "${SETUP_BTRFS_SNAPPER:-true}" = true ] || {
+        _info "SETUP_BTRFS_SNAPPER=false; skipping Snapper setup"
+        return 0
+    }
+
+    _is_btrfs / || {
+        _info "Root is not btrfs; skipping Snapper setup"
+        return 0
+    }
+
+    _info "Btrfs root detected; configuring Snapper rollback support (Phase 1)..."
+
+    _setup_bootbackup_hooks || return 1
+    _setup_snapper_configs || return 1
+    _setup_snapper_updatedb
+    _setup_mkinitcpio_overlayfs
+    _setup_grub_btrfs
+    _setup_snapper_timers
+    _setup_snapper_rollback
+
+    _info "Snapper setup complete (verify: snapper list; paru -S htop)"
+    _info "Rollback docs: instructions/install/arch-install.md#rollback-and-restore"
+}
+
+main() {
+    _info "Setting up environment for an arch based distribution."
+
+    _info "Converting linux-setup repository to SSH..."
+    if [ -d "${REPO_ROOT}/.git" ]; then
+        _set_ssh_remote "${REPO_ROOT}"
+    fi
+
+    _ensure_pacman_multilib
+    _echo_run sudo pacman -Syy
+    _info "Installing paru AUR helper..."
+    if ! command -v paru &> /dev/null; then
+        _echo_run cd "$HOME"
+        _echo_run git clone https://aur.archlinux.org/paru.git
+        _echo_run cd paru
+        _echo_run sudo pacman -S cargo
+        _echo_run makepkg -si
+    fi
+    _echo_run paru --noconfirm -Syu
+
+    _info "Installing basic packages..."
+    _install_packages "basic packages" "${basic_packages[@]}"
+
+    _setup_btrfs_snapper
+
+    _info "Checking if there's an existing firewall service running..."
+    _check_firewall_service "ufw" "ufw"
+    _check_firewall_service "nftables" "nft"
+    _check_firewall_service "firewalld" "firewalld-cmd"
+    if $SETUP_UFW; then
+        _info "No existing firewall service running."
+        _info "Installing ufw and setting up firewall..."
+        _install_pkg "ufw" "--skipreview --noconfirm"
+        _ensure_systemd_enabled_now ufw
+    fi
+
+    _info "Adding workspace and dotfiles..."
+    [ -d "$HOME/Workspace" ] || {
+        _info "Creating workspace directory as ~/Workspace..."
+        _echo_run mkdir "$HOME/Workspace"
+    }
+    [ -d "$HOME/Workspace/dotfiles" ] || {
+        _info "Cloning dotfiles repository to workspace..."
+        _echo_run git clone https://github.com/Aapok0/dotfiles.git "$HOME/Workspace/dotfiles"
+        _set_ssh_remote "$HOME/Workspace/dotfiles"
+    }
+
+    _info "Moving to dotfiles directory..."
+    _echo_run cd "$HOME/Workspace/dotfiles"
+
+    _info "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
+    _echo_run just install
+
+    _info "Installing additional AUR packages..."
+    _install_packages "basic packages (AUR)" "${basic_packages_aur[@]}"
+
+    _info "Setting up git user configuration..."
+    _setup_git_config
+
+    _info "Installing KDE and additional apps..."
+    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
+    _install_packages "apps" "${apps[@]}" "${apps_aur[@]}"
+    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_aur[@]}"
+
+    _info "Doing initial setup for nordvpn..."
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "Systemd-resolved already setup"
     else
-        echo "[SETUP_INFO] : Lightdm slick greeter already installed..."; sleep 2
+        _pkg_is_installed "openresolv" && _echo_run paru -R openresolv
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     fi
-    echo "[SETUP_INFO] : Enabling display manager lightdm..."; sleep 2
-    sudo systemctl enable lightdm
-fi
-echo "Setting up lightdm configurations..."; sleep 3
-if [ -d "/etc/lightdm/lightdm.conf.d" ]; then
-    if [ -d "/etc/lightdm/lightdm.conf.d.bak" ]; then
-        read -p "Backup of /etc/lightdm/lightdm.conf.d directory already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            sudo rm -rf /etc/lightdm/lightdm.conf.d.bak
-            sudo mv /etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm.conf.d.bak
-        fi
+    _ensure_group nordvpn
+    _ensure_user_in_group "$USERNAME" nordvpn
+    _ensure_systemd_enabled_now nordvpnd.service
+
+    if command -v steamtinkerlaunch &>/dev/null; then
+        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _echo_run steamtinkerlaunch compat add
     else
-        sudo mv /etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm.conf.d.bak
-        echo "[SETUP_INFO] : Found existing configuration file for custom lightdm. Backed it up as /etc/lightdm/lightdm.conf.d/lightdm_custom.conf.bak."; sleep 4
+        _warn "steamtinkerlaunch not installed; skipping compat add"
     fi
-fi
-echo "[SETUP_INFO] : Copying lightdm configuration to /etc/lightdm..."; sleep 3
-sudo cp -rf $HOME/Workspace/dotfiles/lightdm/etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm.conf.d
-if [ -f "/etc/lightdm/slick-greeter.conf" ]; then
-    if [ -f "/etc/lightdm/slick-greeter.conf.bak" ]; then
-        read -p "Backup of /etc/lightdm/slick-greeter.conf file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            sudo rm -f /etc/lightdm/slick-greeter.conf.bak
-            sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
-        fi
-    else
-        sudo mv /etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf.bak
-        echo "[SETUP_INFO] : Found existing configuration file for lightdm slick greeter. Backed it up as /etc/lightdm/slick-greeter.conf.bak."; sleep 4
-    fi
-fi
-echo "[SETUP_INFO] : Copying lightdm slick greeter configuration to /etc/lightdm..."; sleep 3
-sudo cp -f $HOME/Workspace/dotfiles/lightdm/etc/lightdm/slick-greeter.conf /etc/lightdm/slick-greeter.conf
 
-# Install ZSH
-echo "[SETUP_INFO] : Installing terminal emulator ZSH..."; sleep 3
-if ! _pkg_is_installed "zsh"; then
-    sudo pacman -S --noconfirm zsh
-else
-    echo "[SETUP_INFO] : Terminal emulator ZSH already installed..."; sleep 2
-fi
-echo "[SETUP_INFO] : Installing plugins, prompt theme, fzf-git and font for ZSH..."; sleep 3
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting" ]; then
-    echo "[SETUP_INFO] : Plugin Fast Syntax Highlighting already installed."; sleep 2
-else
-    git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/fast-syntax-highlighting
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions" ]; then
-    echo "[SETUP_INFO] : Plugin ZSH Autosuggestions already installed."; sleep 2
-else
-    git clone https://github.com/zsh-users/zsh-autosuggestions.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-autosuggestions
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions" ]; then
-    echo "[SETUP_INFO] : Plugin ZSH Completions already installed."; sleep 2
-else
-    git clone https://github.com/zsh-users/zsh-completions.git $HOME/Workspace/dotfiles/zsh/.config/zsh/plugins/zsh-completions
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k" ]; then
-    echo "[SETUP_INFO] : Prompt theme Powerlevel10k already installed."; sleep 2
-else
-    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $HOME/Workspace/dotfiles/zsh/.config/zsh/themes/powerlevel10k
-fi
-if [ -d "$HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh" ]; then
-    echo "[SETUP_INFO] : Tool fzf-git already installed."; sleep 2
-else
-    git clone https://github.com/junegunn/fzf-git.sh.git $HOME/Workspace/dotfiles/zsh/.config/zsh/tools/fzf-git.sh
-fi
-if ! _pkg_is_installed "ttf-meslo-nerd-font-powerlevel10k"; then
-    yay -S --answerclean Installed --answerdiff None --noconfirm ttf-meslo-nerd-font-powerlevel10k
-else
-    echo "[SETUP_INFO] : Font MesloLGS NF already installed..."; sleep 2
-fi
+    _info "Setup completed. Log saved to: ${LOGFILE}"
+}
 
-# Install basic packages
-echo "[SETUP_INFO] : Installing basic packages with pacman..."; sleep 3
-for pkg in "${basic_packages[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-        sudo pacman -S --noconfirm "$pkg"
-    else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
-    fi
-done
-echo "[SETUP_INFO] : Installing basic packages with yay..."; sleep 3
-for pkg in "${basic_packages_yay[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-        yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
-    else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
-    fi
-done
-
-# Setup ZSH
-_config_setup "zsh"
-echo "[SETUP_INFO] : Switching shell to ZSH..."; sleep 3
-change_shell="$(chsh -s $(which zsh) $username)"
-if echo $change_shell | grep "Shell changed."; then
-    echo "[SETUP_INFO] : Switched user $username's shell to ZSH."; sleep 3
-else
-    echo $change_shell
-    echo "[SETUP_ERROR] : Failed to switch $username's shell to ZSH. The user's shell most likely already is ZSH."; sleep 3
-fi
-
-# Install tfswitch
-if [ -z $(command -v tfswitch) ]; then
-    echo "[SETUP_INFO] : Installing tfswitch..."; sleep 3
-    curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/release/install.sh | bash
-else
-    echo "[SETUP_INFO] : Tool tfswitch already installed..."; sleep 2
-fi
-
-# Setup gitconfig
-echo "[SETUP_INFO] : Setting up gitconfig configuration..."; sleep 2
-if [ -f "$HOME/.gitconfig" ]; then
-    if [ -f "$HOME/.gitconfig.bak" ]; then
-        read -p "Backup of $HOME/.gitconfig file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf $HOME/.gitconfig.bak
-            mv $HOME/.gitconfig $HOME/.gitconfig.bak
-        fi
-    else
-        mv $HOME/.gitconfig $HOME/.gitconfig.bak
-        echo "[SETUP_INFO] : Found existing configuration file for gitconfig. Backed it up as $HOME/.gitconfig.bak."; sleep 4
-    fi
-fi
-echo "[SETUP_INFO] : Linking .gitconfig to ~/..."; sleep 3
-stow -vRt $HOME gitconfig
-
-# Setup bat
-_config_setup "bat"
-echo "[SETUP_INFO] : Building bat cache to add Catppuccin Mocha theme..."; sleep 3
-bat cache --build
-
-# Setup kitty
-_config_setup "kitty"
-
-# Setup neovim
-_config_setup "nvim"
-
-# Setup tmux
-_config_setup "tmux"
-echo "[SETUP_INFO] : Installing tmux plugin manager..."; sleep 3
-if [ -d "$HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm" ]; then
-    echo "[SETUP_INFO] : tmux plugin manager (tpm) already installed."; sleep 2
-else
-    git clone https://github.com/tmux-plugins/tpm $HOME/Workspace/dotfiles/tmux/.config/tmux/plugins/tpm
-fi
-echo [SETUP_INFO] : "Linking tmux tools to /usr/local/bin..."; sleep 3
-sudo stow -vRt / tmux-tools
-
-# Install i3 and dependencies (and create Screenshots dir)
-echo "[SETUP_INFO] : Installing i3 related packages with pacman..."; sleep 3
-for pkg in "${i3_packages[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-        sudo pacman -S --noconfirm "$pkg"
-    else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
-    fi
-done
-echo "[SETUP_INFO] : Installing i3 related packages with yay..."; sleep 3
-for pkg in "${i3_packages_yay[@]}"; do
-    if ! _pkg_is_installed "$pkg"; then
-        echo -e "\n[SETUP_INFO] : Installing $pkg...\n"; sleep 2
-        yay -S --answerclean Installed --answerdiff None --noconfirm "$pkg"
-    else
-        echo "[SETUP_INFO] : Package $pkg already installed..."; sleep 2
-    fi
-done
-
-# Setup gtk
-echo "[SETUP_INFO] : Setting up gtk-2.0 configuration..."; sleep 2
-if [ -f "$HOME/.gtkrc-2.0" ]; then
-    if [ -f "$HOME/.gtkrc-2.0.bak" ]; then
-        read -p "Backup of $HOME/.gtkrc-2.0 file already exists. Do you want to remove it and create a new one? [y/N]" -n 1 -r
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -f $HOME/.gtkrc-2.0.bak
-            mv $HOME/.gtkrc-2.0 $HOME/.gtkrc-2.0.bak
-        fi
-    else
-        mv $HOME/.gtkrc-2.0 $HOME/.gtkrc-2.0.bak
-        echo "[SETUP_INFO] : Found existing configuration file for gtk-2.0. Backed it up as $HOME/.gtkrc-2.0.bak."; sleep 4
-    fi
-fi
-_config_setup "gtk-3.0"
-_config_setup "gtk-4.0"
-
-# Setup i3
-_config_setup "i3"
-
-# Setup dunst
-_config_setup "dunst"
-
-# Setup rofi
-_config_setup "rofi"
-
-# Setup picom
-_config_setup "picom"
-
-# Move back to script directory
-echo "[SETUP_INFO] : Moving back to script directory..."; sleep 3
-cd -
-
-# Create screenshot directory
-if [ -d "$HOME/Screenshots" ]; then
-    echo "[SETUP_INFO] : Screenshots directory exists in ~/Screenshots."; sleep 3
-else
-    echo "[SETUP_INFO] : Creating directory for screenshots..."; sleep 3
-    mkdir $HOME/Screenshots
-fi
-
-# Install apps
-echo "[SETUP_INFO] : Installing apps with pacman..."; sleep 3
-for app in "${apps[@]}"; do
-    if ! _pkg_is_installed "$app"; then
-        echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
-        sudo pacman -S --noconfirm "$app"
-    else
-        echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
-    fi
-done
-echo "[SETUP_INFO] : Installing apps with yay..."; sleep 3
-for app in "${apps_yay[@]}"; do
-    if ! _pkg_is_installed "$app"; then
-        echo -e "\n[SETUP_INFO] : Installing $app...\n"; sleep 2
-        yay -S --answerclean Installed --answerdiff None --noconfirm "$app"
-    else
-        echo "[SETUP_INFO] : Application $app already installed..."; sleep 2
-    fi
-done
+main "$@" || return 1

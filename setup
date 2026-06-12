@@ -1,58 +1,69 @@
 #!/usr/bin/env bash
+set -o pipefail
 
-###############
-## VARIABLES ##
-###############
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
 
-# Create timestamp for log file
 timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
+LOGFILE="${REPO_ROOT}/logs/${timestamp}_setup.log"
+init_logging "setup"
 
-# Save current user's username to variable
-username="$(whoami)"
+_get_distro() {
+    [ -f /etc/os-release ] && source /etc/os-release
+    [ "$1" = "arch" ] || [ "$1" = "debian" ] || [ "$1" = "fedora" ] && echo "$1" && return 0
+    [[ "$ID" =~ "fedora" ]] || [[ "$ID_LIKE" =~ "fedora" ]] && echo "fedora" && return 0
+    [[ "$ID_LIKE" =~ "arch" ]] || [[ "$ID" =~ "arch" ]] && echo "arch" && return 0
+    [[ "$ID_LIKE" =~ "debian" ]] || [[ "$ID" =~ "debian" ]] && echo "debian" && return 0
+    return 1
+}
 
-#################
-## MAIN SCRIPT ##
-#################
+_print_post_setup_tasks() {
+    _section "Setup finished"
+    _out "Post-setup tasks:"
+    _out "1. Reboot the machine"
+    _out "2. Run ghostty"
+    _out "3. Check firewall rules if one was already installed"
+    _out "4. Install nvm and node:"
+    _out "   - Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating"
+    _out "   - exec zsh"
+    _out "   - nvm install node"
+    _out "5. Install python with pyenv (skip first two steps on arch):"
+    _out "   - pyenv install -l | less"
+    _out "   - pyenv install <version>"
+    _out "   - pyenv global <version>"
+    _out "   - mkdir -p ~/Python && cd ~/Python"
+    _out "   - python -m venv <name>"
+    _out "6. Open nvim and install plugins:"
+    _out "   - nvim"
+    _out "   - Let lazy.nvim install plugins"
+    _out "   - :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint"
+    _out "7. Open tmux (tmux) and install plugins (ctrl+space I)"
+}
 
-# Run script that corresponds to arch or debian and stream output to a log file
-echo "LINUX SETUP SCRIPT FOR ARCH AND DEBIAN LINUX DISTRIBUTIONS"; sleep 3
-mkdir -p logs # Make sure logs directory exists
-if [[ -f /etc/os-release || -n "$1" ]]; then
-    source /etc/os-release
-    if [[ $ID_LIKE =~ "arch" || "$1" == "arch" ]]; then
-        scripts/setup-arch $username | tee logs/${timestamp}_setup.log
-    elif [[ $ID_LIKE =~ "debian" || "$1" == "debian" ]]; then
-        scripts/setup-debian $username | tee logs/${timestamp}_setup.log
-    elif [[ -n "$1" && "$1" != "arch" && "$1" != "debian" ]]; then
-        echo "[SETUP_ERROR] : Unsupported distribution variable provided. Variable can either be \"arch\" or \"debian\"."
-        exit 1
-    else
-        echo "[SETUP_ERROR] : Unknown distribution in ID_LIKE. Provide arch or debian as a variable, if you know it applies to your distribution. For example: ./setup \"arch\""
+main() {
+    local distro username
+
+    username="$(whoami)"
+    _info "Linux setup script for Arch, Debian, and Fedora"
+
+    distro=$(_get_distro "$1")
+    if [ $? -ne 0 ] || [ -z "$distro" ]; then
+        _error "Unknown distribution. Provide 'arch', 'debian', or 'fedora' as an argument."
         exit 1
     fi
-else
-    echo "[SETUP_ERROR] : /etc/os-release not found. Provide arch or debian as a variable, if you know it applies to your distribution. For example: ./setup \"arch\""
-    exit 1
-fi
 
-#######################
-## POST SCRIPT TASKS ##
-#######################
+    _info "Running setup for ${distro}..."
+    LOGFILE="${LOGFILE}" LINUX_SETUP_LOGGING=1 "${REPO_ROOT}/scripts/setup-${distro}" "$username"
 
-if [[ $? = 0 ]]; then
-    echo "SETUP FINISHED"
-    echo "The following post setup tasks should still be done:"
-    echo "1. Reboot the machine."
-    echo "2. Run kitty with \"mod+enter\"."
-    echo "3. Run the command \"arandr\", set your screen/s and resolution correctly and save the file as \"monitor.sh\”."
-    echo "4. If a firewall was already installed, check its rules."
-    echo "5. Install nvm and node (+npm) with following commands:"
-    echo "    - curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
-    echo "    - exec zsh"
-    echo "    - nvm install node"
-    echo "6. Open tmux session with the command \"tmux\" and install tmux plugins by pressing \"ctrl+space I\"."
-    echo "7. Open neovim once with command \"nvim\" and let it install all the plugins."
-    echo "8. If everything works, you can remove the old backup directories of configurations from \"~/.config\". if you want to."
-else
-    echo "[SETUP_ERROR] : Script was interrupted by an unexpected error."
-fi
+    if [ $? -eq 0 ]; then
+        _info "Setup completed. Log saved to: ${LOGFILE}"
+        _print_post_setup_tasks
+        exit 0
+    else
+        _error "Setup interrupted by unexpected error"
+        exit 1
+    fi
+}
+
+main "$@"

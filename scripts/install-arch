@@ -1,0 +1,956 @@
+#!/usr/bin/env bash
+
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/install.sh
+source "${REPO_ROOT}/scripts/lib/install.sh"
+init_logging "install-arch"
+
+# Configuration variables
+ROOT_DEVICE=""
+ROOT_SIZE=""
+ROOT_SIZE_UNIT=""
+HOME_DEVICE=""
+HOME_SIZE=""
+HOME_SIZE_UNIT=""
+SWAP_TYPE=""
+SWAP_SIZE=""
+HIBERNATION_ENABLED=false
+ENCRYPTION_ENABLED=false
+
+# Resolved partition paths (set after partitioning)
+EFI_PARTITION=""
+BOOT_PARTITION=""
+ROOT_PARTITION=""
+HOME_PARTITION=""
+SWAP_PARTITION=""
+
+# Resolved logical volume paths (set after LVM setup)
+ROOT_LV=""
+HOME_LV=""
+SWAP_LV=""
+
+# Install target (set before mounting)
+INSTALL_USERNAME=""
+INSTALL_HOSTNAME=""
+
+# Boot partition sizes (in GB)
+BOOT_EFI_SIZE=1
+BOOT_SIZE=4
+
+# Device list (populated by _list_available_devices)
+declare -a AVAILABLE_DEVICES
+
+# ============================================================================
+# Device discovery and display functions
+# ============================================================================
+
+_get_device_size() {
+    local device=$1
+    lsblk -bdn -o SIZE "$device" 2>/dev/null | head -1
+}
+
+_human_readable_size() {
+    local bytes=$1
+    numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || {
+        # Fallback if numfmt is not available
+        echo "$(( bytes / 1024 / 1024 / 1024 ))GB"
+    }
+}
+
+_list_available_devices() {
+    _info "Scanning available block devices..."
+
+    local -a devices
+
+    # Get all block devices (excluding partitions and loops)
+    while IFS= read -r line; do
+        devices+=("$line")
+    done < <(lsblk -dln -o NAME,SIZE,MODEL 2>/dev/null | grep -v loop)
+
+    if [ ${#devices[@]} -eq 0 ]; then
+        _error "No block devices found. Aborting."
+        return 1
+    fi
+
+    # Store globally for use in selection function
+    AVAILABLE_DEVICES=("${devices[@]}")
+
+    _section "Available Block Devices"
+
+    local idx=0
+    while [ $idx -lt ${#devices[@]} ]; do
+        _out "[$idx] ${devices[$idx]}"
+        ((idx++))
+    done
+
+    _out ""
+    return 0
+}
+
+_prompt_device_selection() {
+    local prompt_msg=$1
+    local device_var=$2
+    local selected_device
+    local device_name
+
+    while true; do
+        read -p "$prompt_msg" selected_device
+
+        # Check, if input is an index number
+        if [[ $selected_device =~ ^[0-9]+$ ]]; then
+            if [ "$selected_device" -lt ${#AVAILABLE_DEVICES[@]} ]; then
+                # Extract device name from the list entry (format: "NAME SIZE MODEL")
+                device_name=$(echo "${AVAILABLE_DEVICES[$selected_device]}" | awk '{print $1}')
+                # Change to /dev/xxx format
+                selected_device="/dev/$device_name"
+                eval "$device_var=$selected_device"
+                _info "Selected device: $selected_device (Size: $(_human_readable_size $(_get_device_size "$selected_device")))"
+                return 0
+            else
+                _error "Invalid index: $selected_device. Please enter a valid index."
+                continue
+            fi
+        fi
+
+        # Validate device exists (direct name or path input)
+        #   - Device can be selected with both index and name/path
+        if [ -b "/dev/$selected_device" ] || [ -b "$selected_device" ]; then
+            # Normalize to /dev/xxx format
+            if [[ ! "$selected_device" =~ ^/dev/ ]]; then
+                selected_device="/dev/$selected_device"
+            fi
+            eval "$device_var=$selected_device"
+            _info "Selected device: $selected_device (Size: $(_human_readable_size $(_get_device_size "$selected_device")))"
+            return 0
+        else
+            _error "Invalid device or index: $selected_device. Please try again."
+        fi
+    done
+}
+
+# ============================================================================
+# Partition sizing functions
+# ============================================================================
+
+_calculate_available_space() {
+    local device=$1
+    local partition_name=$2
+    local device_size_bytes=$(_get_device_size "$device")
+    local device_size_gb=$(( device_size_bytes / 1024 / 1024 / 1024 ))
+    local reserved_space=0
+
+    # Reserve boot partitions, if on same device as root
+    if [ "$partition_name" = "ROOT" ]; then
+        reserved_space=$(( BOOT_EFI_SIZE + BOOT_SIZE ))
+        # Only reserve swap, if it's a partition (not LVM)
+        if [ "$SWAP_TYPE" = "partition" ] && [ -n "$SWAP_SIZE" ]; then
+            reserved_space=$(( reserved_space + SWAP_SIZE ))
+        fi
+    fi
+
+    # Reserve boot partitions, swap, and root, if home is on same device as root
+    if [ "$partition_name" = "HOME" ] && [ "$HOME_DEVICE" = "$ROOT_DEVICE" ]; then
+        reserved_space=$(( reserved_space + BOOT_EFI_SIZE + BOOT_SIZE ))
+        # Only reserve swap, if it's a partition (not LVM)
+        if [ "$SWAP_TYPE" = "partition" ] && [ -n "$SWAP_SIZE" ]; then
+            reserved_space=$(( reserved_space + SWAP_SIZE ))
+        fi
+        # Also reserve root partition size, if specified
+        if [ -n "$ROOT_SIZE" ]; then
+            reserved_space=$(( reserved_space + ROOT_SIZE ))
+        fi
+    fi
+
+    local available_gb=$(( device_size_gb - reserved_space ))
+    if [ $available_gb -lt 0 ]; then
+        available_gb=0
+    fi
+
+    echo $available_gb
+}
+
+_prompt_partition_size() {
+    local partition_name=$1
+    local device=$2
+    local device_size_bytes=$(_get_device_size "$device")
+    local device_size_human=$(_human_readable_size $device_size_bytes)
+    local available_gb=$(_calculate_available_space "$device" "$partition_name")
+    local size_value
+    local size_unit
+
+    while true; do
+        _out ""
+        _out "Configuring size for $partition_name on $device"
+        _out "  Total device size: ~$device_size_human"
+        _out "  Available space:   ~${available_gb}GB"
+
+        if [ "$partition_name" = "ROOT" ]; then
+            if [ "$SWAP_TYPE" = "partition" ]; then
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + Swap (${SWAP_SIZE}GB)"
+            else
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB)"
+            fi
+        fi
+
+        if [ "$partition_name" = "HOME" ] && [ "$HOME_DEVICE" = "$ROOT_DEVICE" ]; then
+            if [ "$SWAP_TYPE" = "partition" ]; then
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + Swap (${SWAP_SIZE}GB) + ROOT (${ROOT_SIZE}${ROOT_SIZE_UNIT})"
+            else
+                _out "  Reserved: Boot EFI (${BOOT_EFI_SIZE}GB) + Boot (${BOOT_SIZE}GB) + ROOT (${ROOT_SIZE}${ROOT_SIZE_UNIT})"
+            fi
+        fi
+
+        read -p "Enter size (e.g., '100G' for 100GB or 'all' to use all available space): " size_input
+
+        if [ "$size_input" = "all" ]; then
+            eval "${partition_name}_SIZE=all"
+            eval "${partition_name}_SIZE_UNIT=all"
+            _info "$partition_name will use all available space"
+            return 0
+        fi
+
+        # Validate size format (must end with G, T, M, etc.)
+        if [[ $size_input =~ ^[0-9]+[GMT]$ ]]; then
+            eval "${partition_name}_SIZE=${size_input%?}"
+            eval "${partition_name}_SIZE_UNIT=${size_input: -1}"
+            _info "$partition_name size set to: $size_input"
+            return 0
+        else
+            _error "Invalid format. Please use format like '100G', '1T', '512M', or 'all'"
+        fi
+    done
+}
+
+# ============================================================================
+# Swap configuration functions
+# ============================================================================
+
+_get_total_ram() {
+    local ram_kb
+    ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    # Convert KB to GB - round to nearest GB
+    echo $(( (ram_kb + 524287) / 1048576 ))
+}
+
+_prompt_swap_type() {
+    local swap_type
+
+    _section "Swap Configuration"
+    _out ""
+
+    while true; do
+        _out "Select swap type:"
+        _out "[1] Swap as partition"
+        _out "[2] Swap as LVM logical volume"
+        read -p "Enter choice [1 or 2]: " swap_type
+
+        case $swap_type in
+            1)
+                SWAP_TYPE="partition"
+                _info "Swap will be created as a partition"
+                return 0
+                ;;
+            2)
+                SWAP_TYPE="lvm"
+                _info "Swap will be created as an LVM logical volume"
+                return 0
+                ;;
+            *)
+                _error "Invalid choice. Please enter 1 or 2."
+                ;;
+        esac
+    done
+}
+
+_prompt_hibernation() {
+    local response
+
+    _out ""
+    read -p "Do you need hibernation support? (y/n): " response
+
+    if [[ $response =~ ^[Yy]$ ]]; then
+        HIBERNATION_ENABLED=true
+        _info "Hibernation support enabled"
+    else
+        HIBERNATION_ENABLED=false
+        _info "Hibernation support disabled"
+    fi
+}
+
+_calculate_sqrt() {
+    local num=$1
+    local sqrt=0
+    local bit=1
+
+    # Find the highest bit
+    while [ $((bit * bit)) -le $num ]; do
+        bit=$((bit * 2))
+    done
+    bit=$((bit / 2))
+
+    # Binary search for square root
+    while [ $bit -gt 0 ]; do
+        if [ $(((sqrt + bit) * (sqrt + bit))) -le $num ]; then
+            sqrt=$((sqrt + bit))
+        fi
+        bit=$((bit / 2))
+    done
+
+    echo $sqrt
+}
+
+_calculate_swap_size() {
+    local ram_gb=$(_get_total_ram)
+    local swap_gb
+    local sqrt_ram
+
+    sqrt_ram=$(_calculate_sqrt $ram_gb)
+
+    if [ "$HIBERNATION_ENABLED" = true ]; then
+        # For hibernation: RAM + sqrt(RAM)
+        swap_gb=$(( ram_gb + sqrt_ram ))
+        _info "Swap size for hibernation: ${swap_gb}GB (RAM: ${ram_gb}GB + sqrt(RAM): ${sqrt_ram}GB)"
+    else
+        # For non-hibernation: sqrt(RAM), minimum 2GB
+        swap_gb=$sqrt_ram
+        if [ $swap_gb -lt 2 ]; then
+            swap_gb=2
+        fi
+        _info "Swap size without hibernation: sqrt(RAM): ${swap_gb}GB"
+    fi
+
+    SWAP_SIZE=$swap_gb
+}
+
+# ============================================================================
+# Validation and summary functions
+# ============================================================================
+
+_validate_devices() {
+    if [ -z "$ROOT_DEVICE" ]; then
+        _error "Root device not selected"
+        return 1
+    fi
+
+    if [ -z "$HOME_DEVICE" ]; then
+        _error "Home device not selected"
+        return 1
+    fi
+
+    if [ "$ROOT_DEVICE" = "$HOME_DEVICE" ]; then
+        _info "Root and home will be on the same device"
+        if [ "$ROOT_SIZE_UNIT" = "all" ]; then
+            _error "Root cannot use all space when home is on the same device. Specify a root size."
+            return 1
+        fi
+    else
+        _info "Root and home will be on separate devices"
+    fi
+
+    return 0
+}
+
+_print_configuration_summary() {
+    local root_display
+    local home_display
+
+    # Display root and home partition size even, when all is selected 
+    if [ "$ROOT_SIZE_UNIT" = "all" ]; then
+        local available_root=$(_calculate_available_space "$ROOT_DEVICE" "ROOT")
+        root_display="${available_root}GB (all available)"
+    else
+        root_display="${ROOT_SIZE}${ROOT_SIZE_UNIT}"
+    fi
+
+    if [ "$HOME_SIZE_UNIT" = "all" ]; then
+        local available_home=$(_calculate_available_space "$HOME_DEVICE" "HOME")
+        home_display="${available_home}GB (all available)"
+    else
+        home_display="${HOME_SIZE}${HOME_SIZE_UNIT}"
+    fi
+
+    _section "Installation Configuration Summary"
+    _out ""
+    _out "Root Device:              $ROOT_DEVICE"
+    _out "Root Partition Size:      $root_display"
+    _out ""
+    _out "Home Device:              $HOME_DEVICE"
+    _out "Home Partition Size:      $home_display"
+    _out ""
+    _out "Swap Type:                $SWAP_TYPE"
+    _out "Swap Size:                ${SWAP_SIZE}GB"
+    _out "Hibernation Support:      $([ "$HIBERNATION_ENABLED" = true ] && echo "Yes" || echo "No")"
+    _out ""
+}
+
+_confirm_configuration() {
+    local response
+
+    while true; do
+        read -r -p "Do you want to proceed with this configuration? (yes/no): " response
+
+        case $response in
+            yes)
+                _out "Configuration confirmed: yes"
+                _info "Configuration confirmed"
+                return 0
+                ;;
+            no)
+                _out "Configuration confirmed: no"
+                _info "Configuration cancelled by user"
+                return 2
+                ;;
+            *)
+                _warn "Please enter 'yes' or 'no'"
+                ;;
+        esac
+    done
+}
+
+# ============================================================================
+# Partitioning functions
+# ============================================================================
+
+_prompt_format_confirmation() {
+    local device=$1
+    local response
+
+    _out ""
+    _warn "WARNING: This will DESTROY all data on $device"
+    _warn "All existing partitions and data will be permanently lost."
+    _out ""
+
+    while true; do
+        read -p "Do you want to format $device and create new partitions? (yes/no): " response
+
+        case $response in
+            yes)
+                _warn "Formatting $device - Point of no return!"
+                return 0
+                ;;
+            no)
+                _info "Format cancelled by user"
+                return 2
+                ;;
+            *)
+                _warn "Please enter 'yes' or 'no'"
+                ;;
+        esac
+    done
+}
+
+_setup_disk_partitions() {
+    local device=$1
+    local root_size=$2
+    local root_unit=$3
+    local swap_size=$4
+    local swap_on_this_device=$5
+    local is_root_device=$6
+
+    # Prompt for confirmation before destructive operation
+    _prompt_format_confirmation "$device"
+    _propagate_rc $? || return $?
+
+    _info "Initializing partition table on $device..."
+
+    # Create a new GPT partition table
+    _echo_run parted -s "$device" mklabel gpt || return 1
+
+    local start="0%"
+    local end
+
+    # Create EFI boot partition (1GB)
+    if [ "$is_root_device" = true ]; then
+        end="1GB"
+        _info "Creating EFI boot partition (1GB)..."
+        _echo_run parted -s -a optimal "$device" mkpart boot_efi fat32 "$start" "$end" || return 1
+
+        start="1GB"
+        end="5GB"
+        _info "Creating boot partition (4GB)..."
+        _echo_run parted -s -a optimal "$device" mkpart boot ext4 "$start" "$end" || return 1
+
+        start="5GB"
+    fi
+
+    # Create swap partition (if on this device and as partition)
+    if [ "$swap_on_this_device" = true ] && [ "$SWAP_TYPE" = "partition" ]; then
+        end="$((5 + swap_size))GB"
+        _info "Creating swap partition (${swap_size}GB)..."
+        _echo_run parted -s -a optimal "$device" mkpart swap linux-swap "$start" "$end" || return 1
+
+        start="$((5 + swap_size))GB"
+    fi
+
+    # Create root or home partition
+    if [ "$is_root_device" = true ]; then
+        if [ "$root_unit" = "all" ]; then
+            end="100%"
+            _info "Creating root partition (all remaining space)..."
+        else
+            end="$((5 + (swap_on_this_device && [ "$SWAP_TYPE" = "partition" ] ? swap_size : 0) + root_size))${root_unit}"
+            _info "Creating root partition (${root_size}${root_unit})..."
+        fi
+        _echo_run parted -s -a optimal "$device" mkpart root linux "$start" "$end" || return 1
+
+        if [ "$HOME_DEVICE" = "$device" ]; then
+            start="$end"
+            if [ "$HOME_SIZE_UNIT" = "all" ]; then
+                end="100%"
+                _info "Creating home partition (all remaining space)..."
+            else
+                end="+${HOME_SIZE}${HOME_SIZE_UNIT}"
+                _info "Creating home partition (${HOME_SIZE}${HOME_SIZE_UNIT})..."
+            fi
+            _echo_run parted -s -a optimal "$device" mkpart home linux "$start" "$end" || return 1
+        fi
+    else
+        # Home device
+        if [ "$root_unit" = "all" ]; then
+            end="100%"
+            _info "Creating home partition (all remaining space)..."
+        else
+            end="${root_size}${root_unit}"
+            _info "Creating home partition (${root_size}${root_unit})..."
+        fi
+        _echo_run parted -s -a optimal "$device" mkpart home linux "$start" "$end" || return 1
+    fi
+
+    _info "Refreshing partition table on $device..."
+    _echo_run partprobe "$device" || return 1
+    if command -v udevadm &>/dev/null; then
+        udevadm settle
+    fi
+
+    _info "Partition table on $device created successfully"
+    return 0
+}
+
+_resolve_partition_by_label() {
+    local device=$1
+    local label=$2
+    local part
+
+    part=$(lsblk -ln -o NAME,PARTLABEL "$device" 2>/dev/null \
+        | awk -v label="$label" '$2 == label {print "/dev/" $1; exit}')
+
+    if [ -z "$part" ] || [ ! -b "$part" ]; then
+        _error "Could not resolve partition '$label' on $device"
+        return 1
+    fi
+
+    echo "$part"
+}
+
+_resolve_partition_paths() {
+    _info "Resolving partition paths..."
+
+    EFI_PARTITION=$(_resolve_partition_by_label "$ROOT_DEVICE" boot_efi) || return 1
+    BOOT_PARTITION=$(_resolve_partition_by_label "$ROOT_DEVICE" boot) || return 1
+    ROOT_PARTITION=$(_resolve_partition_by_label "$ROOT_DEVICE" root) || return 1
+    HOME_PARTITION=$(_resolve_partition_by_label "$HOME_DEVICE" home) || return 1
+
+    if [ "$SWAP_TYPE" = "partition" ]; then
+        SWAP_PARTITION=$(_resolve_partition_by_label "$ROOT_DEVICE" swap) || return 1
+    else
+        SWAP_PARTITION=""
+    fi
+
+    _info "EFI:  $EFI_PARTITION"
+    _info "Boot: $BOOT_PARTITION"
+    _info "Root: $ROOT_PARTITION"
+    _info "Home: $HOME_PARTITION"
+    if [ -n "$SWAP_PARTITION" ]; then
+        _info "Swap: $SWAP_PARTITION"
+    fi
+
+    return 0
+}
+
+_get_pv_device() {
+    local target=$1
+
+    if [ "$ENCRYPTION_ENABLED" = true ]; then
+        case $target in
+            root) echo "/dev/mapper/luks_root" ;;
+            home) echo "/dev/mapper/luks_home" ;;
+            *)
+                _error "Unknown PV target: $target"
+                return 1
+                ;;
+        esac
+    else
+        case $target in
+            root) echo "$ROOT_PARTITION" ;;
+            home) echo "$HOME_PARTITION" ;;
+            *)
+                _error "Unknown PV target: $target"
+                return 1
+                ;;
+        esac
+    fi
+}
+
+_print_partition_summary() {
+    local device=$1
+
+    _info "Current partition table for $device:"
+    _log_cmd_output parted -s "$device" print
+}
+
+# ============================================================================
+# Disk setup phase
+# ============================================================================
+
+_setup_disk_configuration() {
+    _info "Starting Arch Linux disk setup configuration"
+    _list_available_devices
+    _propagate_rc $? || return $?
+
+    # Select root device
+    _prompt_device_selection "Enter root device index number or name (e.g., 1, 2 or sda, nvme0n1): " ROOT_DEVICE
+    _propagate_rc $? || return $?
+
+    # Select home device
+    _prompt_device_selection "Enter home device index number or name (e.g., 1, 2 or sda, nvme0n1, or same as root): " HOME_DEVICE
+    _propagate_rc $? || return $?
+
+    # Configure swap BEFORE partition sizes (so available space can be calculated)
+    _prompt_swap_type
+    _propagate_rc $? || return $?
+    _prompt_hibernation
+    _calculate_swap_size
+
+    # Configure root partition size (accounting for boot and swap)
+    _prompt_partition_size "ROOT" "$ROOT_DEVICE"
+    _propagate_rc $? || return $?
+
+    # Configure home partition size (accounting for reserved space)
+    _prompt_partition_size "HOME" "$HOME_DEVICE"
+    _propagate_rc $? || return $?
+
+    # Validate and display summary
+    _validate_devices
+    _propagate_rc $? || return $?
+    _print_configuration_summary
+    _confirm_configuration
+    _propagate_rc $? || return $?
+
+    _info "Proceeding with disk partitioning"
+
+    # Partition root device
+    _info "Partitioning root device: $ROOT_DEVICE"
+    local swap_on_root=false
+    if [ "$SWAP_TYPE" = "partition" ]; then
+        swap_on_root=true
+    fi
+    _setup_disk_partitions "$ROOT_DEVICE" "$ROOT_SIZE" "$ROOT_SIZE_UNIT" "$SWAP_SIZE" "$swap_on_root" true
+    _propagate_rc $? "Failed to partition root device" || return $?
+
+    # Partition home device if it's different from root
+    if [ "$HOME_DEVICE" != "$ROOT_DEVICE" ]; then
+        _info "Partitioning home device: $HOME_DEVICE"
+        _setup_disk_partitions "$HOME_DEVICE" "$HOME_SIZE" "$HOME_SIZE_UNIT" 0 false false
+        _propagate_rc $? "Failed to partition home device" || return $?
+    fi
+
+    # Display final partition tables
+    _print_partition_summary "$ROOT_DEVICE"
+
+    if [ "$HOME_DEVICE" != "$ROOT_DEVICE" ]; then
+        _print_partition_summary "$HOME_DEVICE"
+    fi
+
+    _resolve_partition_paths
+    _propagate_rc $? "Failed to resolve partition paths" || return $?
+
+    _info "Disk configuration and partitioning completed successfully"
+
+    return 0
+}
+
+# ============================================================================
+# Encryption functions
+# ============================================================================
+
+_encrypt_and_open_partition() {
+    local partition=$1
+    local mapper_name=$2
+
+    _out ""
+    _warn "WARNING: LUKS formatting will erase all data on $partition"
+    _warn "You will be prompted to enter and verify a passphrase."
+    _warn "Save this passphrase somewhere safe — you need it to boot."
+    _out ""
+
+    if ! _prompt_yes_no "Format $partition with LUKS2 encryption? (y/n): "; then
+        _info "Encryption cancelled for $partition"
+        return 2
+    fi
+
+    _info "Formatting $partition with LUKS2..."
+    _log_interactive cryptsetup luksFormat -v -s 512 -h sha512 --type luks2 "$partition"
+    cryptsetup luksFormat -v -s 512 -h sha512 --type luks2 "$partition" || {
+        _error "luksFormat failed for $partition"
+        return 1
+    }
+
+    _info "Opening $partition as $mapper_name..."
+    _log_interactive cryptsetup open "$partition" "$mapper_name"
+    cryptsetup open "$partition" "$mapper_name" || {
+        _error "Failed to open $partition as $mapper_name"
+        return 1
+    }
+
+    _info "Opened $partition as /dev/mapper/$mapper_name"
+    return 0
+}
+
+_setup_encryption() {
+    if ! command -v cryptsetup &>/dev/null; then
+        _error "cryptsetup not found. Install it or use the Arch live ISO."
+        return 1
+    fi
+
+    _load_crypt_modules
+    _propagate_rc $? || return $?
+
+    _encrypt_and_open_partition "$ROOT_PARTITION" luks_root
+    _propagate_rc $? || return $?
+    _encrypt_and_open_partition "$HOME_PARTITION" luks_home
+    _propagate_rc $? || return $?
+
+    _info "Encryption completed"
+    _info "Root PV: $(_get_pv_device root)"
+    _info "Home PV: $(_get_pv_device home)"
+
+    return 0
+}
+
+# ============================================================================
+# LVM functions
+# ============================================================================
+
+_setup_root_volume_group() {
+    local pv
+
+    pv=$(_get_pv_device root) || return 1
+
+    _info "Creating physical volume on $pv..."
+    _echo_run pvcreate "$pv" || return 1
+
+    _info "Creating volume group $VG_ROOT..."
+    _echo_run vgcreate "$VG_ROOT" "$pv" || return 1
+
+    if [ "$SWAP_TYPE" = "lvm" ]; then
+        _info "Creating swap logical volume (${SWAP_SIZE}GB)..."
+        _echo_run lvcreate -n "$LV_SWAP" -L "${SWAP_SIZE}G" -C y "$VG_ROOT" || return 1
+        SWAP_LV="/dev/mapper/${VG_ROOT}-${LV_SWAP}"
+        _info "Swap LV: $SWAP_LV"
+    fi
+
+    if [ "$SWAP_TYPE" = "lvm" ] || [ "$ROOT_SIZE_UNIT" = "all" ]; then
+        _info "Creating root logical volume (all remaining space in $VG_ROOT)..."
+        _echo_run lvcreate -n "$LV_ROOT" -l +100%FREE "$VG_ROOT" || return 1
+    else
+        _info "Creating root logical volume (${ROOT_SIZE}${ROOT_SIZE_UNIT})..."
+        _echo_run lvcreate -n "$LV_ROOT" -L "${ROOT_SIZE}${ROOT_SIZE_UNIT}" "$VG_ROOT" || return 1
+    fi
+
+    ROOT_LV="/dev/mapper/${VG_ROOT}-${LV_ROOT}"
+    _info "Root LV: $ROOT_LV"
+
+    return 0
+}
+
+_setup_home_volume_group() {
+    local pv
+
+    pv=$(_get_pv_device home) || return 1
+
+    _info "Creating physical volume on $pv..."
+    _echo_run pvcreate "$pv" || return 1
+
+    _info "Creating volume group $VG_HOME..."
+    _echo_run vgcreate "$VG_HOME" "$pv" || return 1
+
+    if [ "$HOME_SIZE_UNIT" = "all" ]; then
+        _info "Creating home logical volume (all remaining space in $VG_HOME)..."
+        _echo_run lvcreate -n "$LV_HOME" -l +100%FREE "$VG_HOME" || return 1
+    else
+        _info "Creating home logical volume (${HOME_SIZE}${HOME_SIZE_UNIT})..."
+        _echo_run lvcreate -n "$LV_HOME" -L "${HOME_SIZE}${HOME_SIZE_UNIT}" "$VG_HOME" || return 1
+    fi
+
+    HOME_LV="/dev/mapper/${VG_HOME}-${LV_HOME}"
+    _info "Home LV: $HOME_LV"
+
+    return 0
+}
+
+_print_lvm_summary() {
+    _section "LVM Summary"
+    _log_cmd_output vgs
+    _out ""
+    _log_cmd_output lvs
+    _out "=========================================="
+    _out ""
+}
+
+_setup_lvm() {
+    _info "Setting up LVM volume groups"
+
+    _setup_root_volume_group
+    _propagate_rc $? "Failed to set up root volume group" || return $?
+
+    _setup_home_volume_group
+    _propagate_rc $? "Failed to set up home volume group" || return $?
+
+    _activate_volume_groups
+    _propagate_rc $? || return $?
+    _print_lvm_summary
+
+    _info "LVM setup completed"
+    return 0
+}
+
+# ============================================================================
+# Filesystem functions
+# ============================================================================
+
+_prompt_filesystem_confirmation() {
+    _out ""
+    _warn "WARNING: This will format filesystems on the following devices:"
+    _warn "  EFI:  $EFI_PARTITION (vfat)"
+    _warn "  Boot: $BOOT_PARTITION (ext4)"
+    _warn "  Root: $ROOT_LV (btrfs)"
+    _warn "  Home: $HOME_LV (btrfs)"
+    if [ -n "$(_get_swap_device)" ]; then
+        _warn "  Swap: $(_get_swap_device)"
+    fi
+    _out ""
+    _warn "All existing data on these volumes will be permanently lost."
+    _out ""
+
+    if ! _prompt_yes_no "Create filesystems on these devices? (y/n): "; then
+        _info "Filesystem creation cancelled by user"
+        return 2
+    fi
+
+    return 0
+}
+
+_format_filesystems() {
+    _info "Formatting EFI partition: $EFI_PARTITION"
+    _echo_run mkfs.fat -F 32 "$EFI_PARTITION" || return 1
+
+    _info "Formatting boot partition: $BOOT_PARTITION"
+    _echo_run mkfs.ext4 "$BOOT_PARTITION" || return 1
+
+    local swap_device
+    swap_device=$(_get_swap_device)
+    if [ -n "$swap_device" ]; then
+        _info "Formatting swap: $swap_device"
+        _echo_run mkswap "$swap_device" || return 1
+    fi
+
+    _info "Formatting root volume: $ROOT_LV"
+    _echo_run mkfs.btrfs -L root "$ROOT_LV" || return 1
+
+    _info "Formatting home volume: $HOME_LV"
+    _echo_run mkfs.btrfs -L home "$HOME_LV" || return 1
+
+    return 0
+}
+
+_setup_filesystems() {
+    _check_filesystem_tools
+    _propagate_rc $? || return $?
+
+    _prompt_install_username
+    _propagate_rc $? || return $?
+
+    _prompt_filesystem_confirmation
+    _propagate_rc $? || return $?
+
+    _info "Creating filesystems"
+
+    _format_filesystems
+    _propagate_rc $? "Failed to create filesystems" || return $?
+
+    _create_btrfs_subvolumes
+    _propagate_rc $? "Failed to create btrfs subvolumes" || return $?
+
+    _mount_installation
+    _propagate_rc $? "Failed to mount installation target" || return $?
+
+    _print_mount_summary
+
+    _info "Filesystem setup completed"
+    return 0
+}
+
+# ============================================================================
+# Main entry point
+# ============================================================================
+
+main() {
+    _info "Arch Linux Installation Script"
+
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        _error "This script must be run as root. Exiting."
+        exit 1
+    fi
+
+    # Check if internet is available
+    if ! ping -c 1 8.8.8.8 &> /dev/null; then
+        _warn "Internet connection not available. Some features may not work."
+    fi
+
+    _run_phase "Disk setup" _setup_disk_configuration
+    _exit_on_rc $?
+
+    _out ""
+    if _prompt_yes_no "Encrypt root and home partitions with LUKS2? (y/n): "; then
+        ENCRYPTION_ENABLED=true
+        _run_phase "Encryption setup" _setup_encryption
+        _exit_on_rc $?
+    else
+        _info "Skipping encryption"
+    fi
+
+    _run_phase "LVM setup" _setup_lvm
+    _exit_on_rc $?
+
+    _run_phase "Filesystem setup" _setup_filesystems
+    _exit_on_rc $?
+
+    _run_phase "Bootstrap" _setup_bootstrap
+    _exit_on_rc $?
+
+    _run_phase "Boot setup" _setup_chroot_boot
+    _exit_on_rc $?
+
+    _run_phase "Localization" _setup_localization
+    _exit_on_rc $?
+
+    _run_phase "User setup" _setup_users
+    _exit_on_rc $?
+
+    _run_phase "Desktop setup" _setup_desktop
+    _exit_on_rc $?
+
+    _finish_installation
+
+    exit 0
+}
+
+main "$@"

@@ -1,3 +1,180 @@
 #!/usr/bin/env bash
 
-echo "TBD"
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+init_logging "setup"
+
+source "${REPO_ROOT}/vars/debian-vars"
+USERNAME=$1
+SETUP_UFW=true
+
+_pkg_is_installed() {
+    dpkg -l | grep -q "^ii.*$1"
+}
+
+_install_pkg() {
+    _pkg_is_installed "$1" && {
+        _info "Package $1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run sudo nala install -y "$1"
+}
+
+_install_packages() {
+    local category="$1"
+    shift
+    local packages=("$@")
+    [ -n "$category" ] && [ "$category" != "." ] && _info "Installing $category..."
+    for pkg in "${packages[@]}"; do
+        _pkg_is_installed "$pkg" && {
+            _info "Package $pkg already installed"
+            continue
+        }
+        _out "Installing $pkg"
+        _echo_run sudo nala install -y "$pkg"
+    done
+}
+
+main() {
+    _info "Setting up environment for a Debian-based distribution."
+
+    _info "Converting linux-setup repository to SSH..."
+    if [ -d "${REPO_ROOT}/.git" ]; then
+        _set_ssh_remote "${REPO_ROOT}"
+    fi
+
+    _info "Updating package lists and upgrading system..."
+    _echo_run sudo apt-get update
+    _echo_run sudo apt-get upgrade -y
+
+    _info "Installing nala and apt tools..."
+    _install_packages "apt tools" "${apt_tools[@]}"
+    _echo_run sudo nala update
+
+    _info "Installing basic packages..."
+    _install_packages "basic packages" "${basic_packages[@]}"
+
+    _info "Checking if there's an existing firewall service running..."
+    _check_firewall_service "ufw" "ufw"
+    _check_firewall_service "nftables" "nft"
+    _check_firewall_service "firewalld" "firewall-cmd"
+    if $SETUP_UFW; then
+        _info "No existing firewall service running."
+        _info "Installing ufw and setting up firewall..."
+        _install_pkg "ufw"
+        _ensure_systemd_enabled_now ufw
+    fi
+
+    _info "Adding workspace and dotfiles..."
+    [ -d "$HOME/Workspace" ] || {
+        _info "Creating workspace directory as ~/Workspace..."
+        _echo_run mkdir "$HOME/Workspace"
+    }
+    [ -d "$HOME/Workspace/dotfiles" ] || {
+        _info "Cloning dotfiles repository to workspace..."
+        _echo_run git clone https://github.com/Aapok0/dotfiles.git "$HOME/Workspace/dotfiles"
+        _set_ssh_remote "$HOME/Workspace/dotfiles"
+    }
+
+    _info "Moving to dotfiles directory..."
+    _echo_run cd "$HOME/Workspace/dotfiles"
+
+    _info "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
+    _echo_run just install
+
+    _info "Setting up git user configuration..."
+    _setup_git_config
+
+    _info "Installing KDE and additional apps..."
+    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
+    _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
+    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
+
+    if command -v steamtinkerlaunch &>/dev/null; then
+        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _echo_run steamtinkerlaunch compat add
+    else
+        _warn "steamtinkerlaunch not installed; skipping compat add"
+    fi
+
+    _info "Installing extra tools via pip..."
+    _install_pip_user_packages "${basic_packages_pip[@]}"
+
+    _info "Installing pyenv for Python version management..."
+    if ! command -v pyenv &> /dev/null; then
+        _info "Cloning pyenv..."
+        _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+        _info "Building pyenv..."
+        _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
+        _info "Pyenv installed to ~/.pyenv"
+        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+        _out '  export PYENV_ROOT="$HOME/.pyenv"'
+        _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
+        _out '  eval "$(pyenv init --path)"'
+        _out '  eval "$(pyenv init -)"'
+    else
+        _info "Pyenv already installed"
+    fi
+
+    _info "Installing tfswitch for Terraform version management..."
+    if ! command -v tfswitch &> /dev/null; then
+        _info "Downloading tfswitch..."
+        _echo_run mkdir -p "$HOME/.local/bin"
+        _echo_run curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/master/install.sh | bash -s -- -b "$HOME/.local/bin"
+        _info "tfswitch installed to ~/.local/bin/tfswitch"
+        _info "Make sure ~/.local/bin is in your PATH"
+    else
+        _info "tfswitch already installed"
+    fi
+
+    _info "Installing nvm for Node version management..."
+    if ! command -v nvm &> /dev/null; then
+        _info "Downloading and installing nvm..."
+        _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+        _info "nvm installed"
+        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+        _out '  export NVM_DIR="$HOME/.nvm"'
+        _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+        _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+    else
+        _info "nvm already installed"
+    fi
+
+    _info "Doing initial setup for systemd-resolved (for DNS)..."
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "systemd-resolved already setup"
+    else
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    fi
+
+    _info "Setting up NordVPN..."
+    if ! command -v nordvpn &> /dev/null; then
+        _info "Adding NordVPN repository and installing..."
+        _echo_run curl https://repo.nordvpn.com/gpg/nordvpn_public.asc | sudo apt-key add -
+        _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'
+        _echo_run sudo nala update
+        _install_pkg "nordvpn"
+        _ensure_group nordvpn
+        _ensure_user_in_group "$USERNAME" nordvpn
+        _ensure_systemd_enabled_now nordvpnd.service
+        _info "NordVPN installed and configured"
+        _info "Login with: nordvpn login --token \"<token_from_account_here>\""
+    else
+        _info "NordVPN already installed"
+    fi
+
+    _info "Setup completed. Log saved to: ${LOGFILE}"
+}
+
+main "$@" || return 1

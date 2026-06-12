@@ -1,0 +1,6 @@
+- on startup open to home directory
+- set default applications:
+  - browser: Firefox
+  - etc.
+- Enable git from context menu tab
+- install open kitty here service and disable open terminal here and run in konsole

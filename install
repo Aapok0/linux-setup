@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+
+timestamp=$(date +"%Y-%m-%d_%H:%M:%S")
+
+_usage() {
+    _out "Usage: ./install arch [--reinstall|--backup]"
+    _out ""
+    _out "  ./install arch            Fresh install from Arch live ISO (as root)"
+    _out "  ./install arch --reinstall  Reinstall from live ISO, preserves /home (as root)"
+    _out "  ./install arch --backup     Back up configs on running system (sudo)"
+    _out ""
+    _out "See instructions/install/arch-install.md and arch-reinstall.md"
+}
+
+main() {
+    local mode="fresh"
+    local target=""
+    local arg
+    local want_reinstall=0
+    local want_backup=0
+
+    for arg in "$@"; do
+        case "$arg" in
+            arch)
+                target="arch"
+                ;;
+            --reinstall)
+                want_reinstall=1
+                ;;
+            --backup)
+                want_backup=1
+                ;;
+            -h|--help)
+                _usage
+                exit 0
+                ;;
+            *)
+                _error "Unknown argument: $arg"
+                _usage
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ "$target" != "arch" ]; then
+        _error "Only 'arch' is supported."
+        _usage
+        exit 1
+    fi
+
+    if [ "$want_reinstall" -eq 1 ] && [ "$want_backup" -eq 1 ]; then
+        _error "Cannot use --reinstall and --backup together."
+        _usage
+        exit 1
+    fi
+
+    if [ "$want_reinstall" -eq 1 ]; then
+        mode="reinstall"
+    elif [ "$want_backup" -eq 1 ]; then
+        mode="backup"
+    fi
+
+    case "$mode" in
+        fresh)
+            LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch.log"
+            _info "Arch Linux fresh install"
+            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch"
+            ;;
+        reinstall)
+            LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch-reinstall.log"
+            _info "Arch Linux reinstall (preserves /home)"
+            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch-reinstall"
+            ;;
+        backup)
+            LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch-backup.log"
+            _info "Arch reinstall config backup (live system)"
+            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch-backup"
+            ;;
+    esac
+
+    local rc=$?
+    if [ $rc -eq 0 ]; then
+        _info "Completed. Log saved to: ${LOGFILE}"
+    fi
+    exit "$rc"
+}
+
+main "$@"

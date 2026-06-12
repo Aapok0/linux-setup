@@ -1,0 +1,507 @@
+#!/usr/bin/env bash
+
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+init_logging "setup"
+
+source "${REPO_ROOT}/vars/fedora-vars"
+USERNAME=$1
+SETUP_UFW=true
+FEDORA_VERSION="$(rpm -E %fedora 2>/dev/null || echo "")"
+
+BTRFS_MOUNT_OPTS="noatime,ssd,compress=zstd:1,space_cache=v2,discard=async,commit=120"
+SETUP_BTRFS_SNAPPER=true
+SETUP_GRUB_BTRFS=true
+SETUP_GRUB_CRYPTOMOUNT=true
+
+_dnf() {
+    sudo dnf "$@"
+}
+
+_pkg_is_installed() {
+    rpm -q "$1" &> /dev/null
+}
+
+_install_pkg() {
+    _pkg_is_installed "$1" && {
+        _info "Package $1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run _dnf install -y "$1"
+}
+
+_install_packages() {
+    local category="$1"
+    shift
+    local packages=("$@")
+    [ -n "$category" ] && [ "$category" != "." ] && _info "Installing $category..."
+    for pkg in "${packages[@]}"; do
+        [ -z "$pkg" ] && continue
+        [[ "$pkg" == \#* ]] && continue
+        _pkg_is_installed "$pkg" && {
+            _info "Package $pkg already installed"
+            continue
+        }
+        _out "Installing $pkg"
+        _echo_run _dnf install -y "$pkg"
+    done
+}
+
+_install_flatpak_apps() {
+    local category="$1"
+    shift
+    local apps=("$@")
+    [ ${#apps[@]} -eq 0 ] && return 0
+
+    command -v flatpak &> /dev/null || {
+        _warn "flatpak not installed; skipping $category"
+        return 0
+    }
+
+    _info "Installing $category..."
+    _echo_run flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    for app in "${apps[@]}"; do
+        [ -z "$app" ] && continue
+        [[ "$app" == \#* ]] && continue
+        flatpak list --app | grep -q "$app" && {
+            _info "Flatpak $app already installed"
+            continue
+        }
+        _out "Installing flatpak $app"
+        _echo_run flatpak install -y flathub "$app"
+    done
+}
+
+_enable_rpmfusion() {
+    [ -n "$FEDORA_VERSION" ] || {
+        _warn "Could not detect Fedora version; skipping RPM Fusion setup"
+        return 0
+    }
+
+    if rpm -q rpmfusion-free-release &> /dev/null && rpm -q rpmfusion-nonfree-release &> /dev/null; then
+        _info "RPM Fusion already enabled"
+        return 0
+    fi
+
+    _info "Enabling RPM Fusion free and nonfree repositories..."
+    _echo_run _dnf install -y \
+        "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VERSION}.noarch.rpm" \
+        "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VERSION}.noarch.rpm"
+}
+
+_setup_systemd_resolved() {
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "systemd-resolved already setup"
+        return 0
+    fi
+
+    if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q systemd; then
+        _info "systemd-resolved already in use"
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        return 0
+    fi
+
+    _echo_run sudo systemctl enable --now systemd-resolved.service
+    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+}
+
+_setup_nordvpn() {
+    if command -v nordvpn &> /dev/null; then
+        _info "NordVPN already installed"
+        return 0
+    fi
+
+    _info "Setting up NordVPN..."
+    _echo_run sudo rpm --import https://repo.nordvpn.com/gpg/nordvpn_public.asc
+    _echo_run sudo tee /etc/yum.repos.d/nordvpn.repo > /dev/null << 'EOF'
+[nordvpn]
+name=NordVPN
+baseurl=https://repo.nordvpn.com/yum/nordvpn/centos/$basearch/
+gpgkey=https://repo.nordvpn.com/gpg/nordvpn_public.asc
+gpgcheck=1
+enabled=1
+EOF
+    _install_pkg "nordvpn"
+    _ensure_group nordvpn
+    _ensure_user_in_group "$USERNAME" nordvpn
+    _ensure_systemd_enabled_now nordvpnd.service
+    _info "NordVPN installed and configured"
+    _info "Login with: nordvpn login --token \"<token_from_account_here>\""
+}
+
+# ---------------------------------------------------------------------------
+# Btrfs + Snapper
+# ---------------------------------------------------------------------------
+
+_is_btrfs() {
+    local path="${1:-/}"
+    findmnt -n -o FSTYPE "$path" 2>/dev/null | grep -qx btrfs
+}
+
+_btrfs_has_snapper_layout() {
+    local subvol missing=()
+    local expected=(log cache plasmalogin media spool tmp containers docker flatpak libvirt)
+
+    for subvol in "${expected[@]}"; do
+        sudo btrfs subvolume list / 2>/dev/null | grep -qE " path ${subvol}$" || missing+=("$subvol")
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        _warn "Option A subvolumes missing on /: ${missing[*]}"
+        return 1
+    fi
+    return 0
+}
+
+_btrfs_fstab_needs_mount_opts() {
+    grep -q btrfs /etc/fstab 2>/dev/null || return 1
+    grep btrfs /etc/fstab | grep -q 'noatime' \
+        && grep btrfs /etc/fstab | grep -q 'discard=async' \
+        && grep btrfs /etc/fstab | grep -q 'compress=zstd:1' && return 1
+    return 0
+}
+
+_setup_btrfs_mount_opts() {
+    _btrfs_fstab_needs_mount_opts || {
+        _info "Btrfs mount options already configured in /etc/fstab"
+        return 0
+    }
+
+    _info "Setting btrfs mount options in /etc/fstab: ${BTRFS_MOUNT_OPTS}"
+    _echo_run sudo cp /etc/fstab /etc/fstab.bkp
+
+    local tmp line subvol
+    tmp=$(mktemp)
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" == *" btrfs "* ]] && [[ "$line" == *"subvol="* ]]; then
+            if [[ "$line" =~ subvol=([^,[:space:]]+) ]]; then
+                subvol="${BASH_REMATCH[1]}"
+                line=$(sed -E "s/subvol=[^[:space:]]+/subvol=${subvol},${BTRFS_MOUNT_OPTS}/" <<< "$line")
+            fi
+        fi
+        printf '%s\n' "$line"
+    done < /etc/fstab > "$tmp"
+    _echo_run sudo cp "$tmp" /etc/fstab
+    rm -f "$tmp"
+    _warn "Reboot recommended to apply btrfs mount options"
+}
+
+_setup_snapper_configs() {
+    local snapper_dir="${REPO_ROOT}/config/fedora/snapper"
+
+    [ -d "$snapper_dir" ] || {
+        _error "Missing ${snapper_dir} — clone linux-setup repo with config/fedora/snapper/"
+        return 1
+    }
+    [ -f "${snapper_dir}/snapper.actions" ] || {
+        _error "Missing ${snapper_dir}/snapper.actions"
+        return 1
+    }
+
+    _info "Installing Snapper dnf5 helper scripts (repo → /usr/local/bin)..."
+    _echo_run sudo install -m 755 "${snapper_dir}/"*.sh /usr/local/bin/
+    _echo_run sudo restorecon -v /usr/local/bin/snapper-*.sh 2>/dev/null || true
+
+    _info "Installing dnf5 Snapper actions plugin config..."
+    _echo_run sudo mkdir -p /etc/dnf/libdnf5-plugins/actions.d/
+    _echo_run sudo install -m 644 "${snapper_dir}/snapper.actions" \
+        /etc/dnf/libdnf5-plugins/actions.d/snapper.actions
+
+    if [ ! -d /.snapshots ]; then
+        _info "Creating Snapper config for / ..."
+        _echo_run sudo snapper -c root create-config /
+    else
+        _info "Snapper root config already present (/.snapshots)"
+    fi
+
+    if _is_btrfs /home && [ ! -d /home/.snapshots ]; then
+        _info "Creating Snapper config for /home ..."
+        _echo_run sudo snapper -c home create-config /home
+    elif [ -d /home/.snapshots ]; then
+        _info "Snapper home config already present (/home/.snapshots)"
+    fi
+
+    _echo_run sudo restorecon -RFv /.snapshots 2>/dev/null || true
+    [ -d /home/.snapshots ] && _echo_run sudo restorecon -RFv /home/.snapshots 2>/dev/null || true
+
+    _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
+    if _is_btrfs /home && [ -f /etc/snapper/configs/home ]; then
+        _echo_run sudo snapper -c home set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes TIMELINE_CREATE=no
+    fi
+}
+
+_setup_snapper_updatedb() {
+    if grep -q '^PRUNENAMES' /etc/updatedb.conf; then
+        grep -q '\.snapshots' /etc/updatedb.conf && return 0
+        _echo_run sudo sed -i 's|^PRUNENAMES *= *"|PRUNENAMES = ".snapshots |' /etc/updatedb.conf
+    else
+        _echo_run bash -c "echo 'PRUNENAMES = \".snapshots\"' | sudo tee -a /etc/updatedb.conf"
+    fi
+}
+
+_setup_grub_btrfs() {
+    if systemctl is-enabled grub-btrfsd.service &>/dev/null; then
+        _info "grub-btrfsd already enabled"
+        return 0
+    fi
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    _info "Building and installing grub-btrfs from upstream..."
+    _echo_run git clone --depth 1 https://github.com/Antynea/grub-btrfs "${tmpdir}/grub-btrfs"
+    _echo_run sed -i \
+        -e 's|^#GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS=.*|GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS="rd.live.overlay.overlayfs=1"|' \
+        -e 's|^#GRUB_BTRFS_GRUB_DIRNAME=.*|GRUB_BTRFS_GRUB_DIRNAME="/boot/grub2"|' \
+        -e 's|^#GRUB_BTRFS_MKCONFIG=.*|GRUB_BTRFS_MKCONFIG=/usr/bin/grub2-mkconfig|' \
+        -e 's|^#GRUB_BTRFS_SCRIPT_CHECK=.*|GRUB_BTRFS_SCRIPT_CHECK=grub2-script-check|' \
+        "${tmpdir}/grub-btrfs/config"
+    _echo_run sudo make -C "${tmpdir}/grub-btrfs" install
+    _echo_run sudo systemctl enable --now grub-btrfsd.service
+    _echo_run sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+    _echo_run rm -rf "${tmpdir}"
+}
+
+_setup_snapper_timers() {
+    _echo_run sudo systemctl enable --now snapper-timeline.timer
+    _echo_run sudo systemctl enable --now snapper-cleanup.timer
+}
+
+_setup_btrfs_snapper() {
+    [ "${SETUP_BTRFS_SNAPPER:-true}" = true ] || {
+        _info "SETUP_BTRFS_SNAPPER=false; skipping Snapper setup"
+        return 0
+    }
+
+    _is_btrfs / || {
+        _info "Root is not btrfs; skipping Snapper setup"
+        return 0
+    }
+
+    _info "Btrfs root detected; configuring Snapper and rollback support..."
+
+    _btrfs_has_snapper_layout || _warn "Subvolume layout differs from Option A — Snapper will still run"
+
+    _install_pkg "libdnf5-plugin-actions"
+    _install_pkg "inotify-tools"
+    _install_pkg "make"
+
+    _setup_btrfs_mount_opts
+    _setup_snapper_configs || return 1
+    _setup_snapper_updatedb
+
+    if [ "${SETUP_GRUB_BTRFS:-true}" = true ]; then
+        _setup_grub_btrfs
+    else
+        _info "SETUP_GRUB_BTRFS=false; skipping grub-btrfs"
+    fi
+
+    _setup_snapper_timers
+    _info "Snapper setup complete (verify: snapper list; dnf install htop)"
+}
+
+# ---------------------------------------------------------------------------
+# Full disk encryption — GRUB cryptomount persistence
+# ---------------------------------------------------------------------------
+
+_root_is_encrypted() {
+    local root_src
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null) || return 1
+    [[ "$root_src" == /dev/mapper/* ]] && return 0
+    cryptsetup status "$root_src" &>/dev/null
+}
+
+_boot_on_encrypted_root() {
+    if ! findmnt /boot &>/dev/null; then
+        return 0
+    fi
+    local root_src boot_src
+    root_src=$(findmnt -n -o SOURCE /)
+    boot_src=$(findmnt -n -o SOURCE /boot)
+    [ "$root_src" = "$boot_src" ]
+}
+
+_needs_grub_cryptomount_fix() {
+    _root_is_encrypted || return 1
+    _boot_on_encrypted_root || return 1
+    [ -f /boot/efi/EFI/fedora/grub.cfg ] || return 1
+}
+
+_setup_grub_cryptomount_fix() {
+    [ "${SETUP_GRUB_CRYPTOMOUNT:-true}" = true ] || {
+        _info "SETUP_GRUB_CRYPTOMOUNT=false; skipping GRUB cryptomount fix"
+        return 0
+    }
+
+    _needs_grub_cryptomount_fix || {
+        _info "Encrypted root with /boot on root not detected; skipping GRUB cryptomount fix"
+        return 0
+    }
+
+    local src="${REPO_ROOT}/config/fedora/grub-cryptomount"
+    [ -f "${src}/99_cryptomount_check" ] || {
+        _warn "Missing ${src}/99_cryptomount_check; skipping GRUB cryptomount fix"
+        return 1
+    }
+
+    _info "Encrypted root detected; installing GRUB cryptomount auto-fix..."
+
+    command -v cryptsetup &>/dev/null || _install_pkg "cryptsetup"
+
+    _echo_run sudo install -Dm755 "${src}/99_cryptomount_check" /etc/grub.d/99_cryptomount_check
+    _echo_run sudo install -Dm644 "${src}/cryptomount-check.service" /etc/systemd/system/cryptomount-check.service
+    _echo_run sudo install -Dm644 "${src}/cryptomount-check.path" /etc/systemd/system/cryptomount-check.path
+    _echo_run sudo systemctl daemon-reload
+    _echo_run sudo systemctl enable --now cryptomount-check.path
+    _echo_run sudo bash /etc/grub.d/99_cryptomount_check
+
+    local first_line
+    first_line=$(sudo head -n 1 /boot/efi/EFI/fedora/grub.cfg 2>/dev/null || true)
+    if [[ "$first_line" == cryptomount\ -u\ * ]]; then
+        _info "GRUB cryptomount line verified: ${first_line}"
+    else
+        _warn "GRUB cryptomount line missing after fix — check /boot/efi/EFI/fedora/grub.cfg"
+    fi
+}
+
+main() {
+    _info "Setting up environment for a Fedora-based distribution."
+
+    _info "Converting linux-setup repository to SSH..."
+    if [ -d "${REPO_ROOT}/.git" ]; then
+        _set_ssh_remote "${REPO_ROOT}"
+    fi
+
+    _info "Updating package lists and upgrading system..."
+    _echo_run _dnf upgrade --refresh -y
+
+    _info "Installing dnf tools..."
+    _install_packages "dnf tools" "${dnf_tools[@]}"
+
+    _enable_rpmfusion
+
+    _info "Installing dnf packages..."
+    _install_packages "dnf packages" "${dnf_packages[@]}"
+
+    _setup_btrfs_snapper
+    _setup_grub_cryptomount_fix
+
+    _info "Checking if there's an existing firewall service running..."
+    _check_firewall_service "ufw" "ufw"
+    _check_firewall_service "nftables" "nft"
+    _check_firewall_service "firewalld" "firewall-cmd"
+    if $SETUP_UFW; then
+        _info "No existing firewall service running."
+        _info "Installing ufw and setting up firewall..."
+        _install_pkg "ufw"
+        _ensure_systemd_enabled_now ufw
+    fi
+
+    _info "Adding workspace and dotfiles..."
+    [ -d "$HOME/Workspace" ] || {
+        _info "Creating workspace directory as ~/Workspace..."
+        _echo_run mkdir "$HOME/Workspace"
+    }
+    [ -d "$HOME/Workspace/dotfiles" ] || {
+        _info "Cloning dotfiles repository to workspace..."
+        _echo_run git clone https://github.com/Aapok0/dotfiles.git "$HOME/Workspace/dotfiles"
+        _set_ssh_remote "$HOME/Workspace/dotfiles"
+    }
+
+    _info "Moving to dotfiles directory..."
+    _echo_run cd "$HOME/Workspace/dotfiles"
+
+    _info "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
+    _echo_run just install
+
+    _info "Setting up git user configuration..."
+    _setup_git_config
+
+    _info "Installing dnf KDE packages..."
+    _install_packages "dnf kde" "${dnf_kde[@]}"
+    _info "Installing dnf apps..."
+    _install_packages "dnf apps" "${dnf_apps[@]}"
+    _info "Installing dnf gaming packages..."
+    _install_packages "dnf gaming" "${dnf_gaming[@]}"
+    _info "Installing RPM Fusion free packages..."
+    _install_packages "rpmfusion free" "${rpmfusion_free_packages[@]}"
+    _info "Installing RPM Fusion nonfree packages..."
+    _install_packages "rpmfusion nonfree" "${rpmfusion_nonfree_packages[@]}"
+    _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
+
+    if command -v steamtinkerlaunch &> /dev/null; then
+        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+        _echo_run steamtinkerlaunch compat add
+    else
+        _warn "steamtinkerlaunch not installed; skip compat add (enable in flatpak_apps or install manually)"
+    fi
+
+    _info "Installing pip/pipx and extra Python CLI tools..."
+    _install_pkg "python3-pip"
+    _install_pkg "pipx"
+    for tool in "${pip_packages[@]}"; do
+        command -v "$tool" &> /dev/null && {
+            _info "$tool already available"
+            continue
+        }
+        _echo_run pipx install "$tool"
+    done
+
+    _info "Installing pyenv for Python version management..."
+    if ! command -v pyenv &> /dev/null; then
+        _info "Cloning pyenv..."
+        _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+        _info "Building pyenv..."
+        _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
+        _info "Pyenv installed to ~/.pyenv"
+        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+        _out '  export PYENV_ROOT="$HOME/.pyenv"'
+        _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
+        _out '  eval "$(pyenv init --path)"'
+        _out '  eval "$(pyenv init -)"'
+    else
+        _info "Pyenv already installed"
+    fi
+
+    _info "Installing tfswitch for Terraform version management..."
+    if ! command -v tfswitch &> /dev/null; then
+        _info "Downloading tfswitch..."
+        _echo_run mkdir -p "$HOME/.local/bin"
+        _echo_run curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/master/install.sh | bash -s -- -b "$HOME/.local/bin"
+        _info "tfswitch installed to ~/.local/bin/tfswitch"
+        _info "Make sure ~/.local/bin is in your PATH"
+    else
+        _info "tfswitch already installed"
+    fi
+
+    _info "Installing nvm for Node version management..."
+    if ! command -v nvm &> /dev/null; then
+        _info "Downloading and installing nvm..."
+        _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+        _info "nvm installed"
+        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+        _out '  export NVM_DIR="$HOME/.nvm"'
+        _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+        _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+    else
+        _info "nvm already installed"
+    fi
+
+    _info "Doing initial setup for systemd-resolved (for DNS)..."
+    _setup_systemd_resolved
+
+    _setup_nordvpn
+
+    _info "Setup completed. Log saved to: ${LOGFILE}"
+}
+
+main "$@" || return 1
