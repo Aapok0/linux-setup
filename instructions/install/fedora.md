@@ -164,10 +164,67 @@ Use when partitions are already laid out (external tool, previous Linux install,
 2. Assign mandatory mount points starting with **`/`** (root), then **`/boot/efi`**
    - **Option A:** no separate **`/boot`** partition — remove or leave empty the installer’s recommended **`/boot`** slot; kernels live on the `root` subvolume (`/boot` is a directory on `/`, not its own mount)
    - **Option A-simple / B / C:** assign **`/boot`** ext4 as well
-3. Add optional mount points (`/home`, `/var/cache`, swap, …) as needed
+3. Add optional mount points (`/home`, `/var/cache`, swap, …) as needed; set **Reformat** per [Reformat](#reformat--when-to-choose-yes-or-no)
 4. Continue to [Storage configuration](#3-storage-configuration)
 
 For btrfs + Snapper or custom layouts, use the [storage editor](#storage-editor-manual-layouts) from step 2 before continuing to step 3.
+
+### Reformat — when to choose yes or no
+
+The **Reformat** toggle appears when you assign a partition to a mount point in **Mount point assignment**. It means *format this partition during installation* (erase existing filesystem). The **Review and install** screen lists **preserve** vs **reformat** per partition — verify there before starting.
+
+**Guided installs** (**Use entire disk**, **Share disk with other operating systems**) handle formatting for you; you do not pick reformat per partition. This section applies to **Mount point assignment** and to checking the review screen.
+
+#### Always **no** reformat (preserve)
+
+| Partition | Mount | Situation |
+|-----------|-------|-----------|
+| **EFI System Partition** | `/boot/efi` | **Dual boot** — must keep Windows boot files. **Linux-only** with ESP created in storage editor — already FAT32; no need to reformat |
+| **Windows** | — | Any `ntfs` / BitLocker volume — never assign to a Linux mount; must show **preserve** on review |
+| **Existing Linux `/home`** | `/home` | **Reinstall Fedora** — only if you intend to keep user data on that partition |
+
+#### **No** reformat after storage editor (typical Option A / A-simple / B / C)
+
+If you created partitions in the [storage editor](#storage-editor-manual-layouts), Cockpit already formatted them. In **Mount point assignment**, leave **Reformat** **off** for every Fedora volume:
+
+| What you created | Mount(s) | Reformat |
+|------------------|----------|----------|
+| New ESP | `/boot/efi` | **No** (already FAT; dual boot must preserve) |
+| New btrfs + subvolumes | `/`, `/home`, `/var/cache`, … | **No** — **yes wipes the whole btrfs partition and destroys all subvolumes** |
+| New swap | *(swap)* | **No** (already `linux-swap`) |
+| New ext4 `/boot` (A-simple / B / C) | `/boot` | **No** if already ext4 from storage editor |
+| New ext4/xfs data disk | `/home`, `/home/Media` | **No** if already formatted in storage editor |
+
+#### **Yes** reformat (less common)
+
+Use **yes** only when assigning a partition that still has old data or no usable filesystem and you **want it erased**:
+
+| Situation | Example |
+|-----------|---------|
+| Reusing a partition from an old install you want wiped | Old ext4 `/` from previous distro |
+| Partition shows as empty / unknown type in mount point list | Leftover partition not formatted in storage editor |
+| Intentional clean install on a partition that still contains files | Replacing an old Linux root, not keeping `/home` |
+
+Do **not** use **yes** on btrfs that already has subvolumes — recreate the layout in the storage editor instead.
+
+#### By install path
+
+| Path | Reformat choices |
+|------|------------------|
+| **Use entire disk** | Anaconda formats automatically — no per-partition toggle |
+| **Share disk with Windows** | Anaconda formats **new** Fedora space only; ESP and Windows **preserved** — confirm on review |
+| **Mount point assignment** after storage editor | **No** for all volumes you just created (see table above) |
+| **Mount point assignment** reusing old partitions | **Yes** on root (and `/boot` if separate) you want wiped; **no** on ESP (dual boot), Windows, `/home` you keep |
+| **Option A** | No `/boot` mount; **no** reformat on ESP, btrfs subvolumes, swap |
+| **Option A-simple / B / C** | **No** reformat on `/boot` ext4 if already formatted in storage editor; **yes** only if reusing an unformatted or old `/boot` you want recreated |
+
+#### Review screen (step 4)
+
+Before **Begin installation**, confirm:
+
+- **Dual boot:** Windows partitions → **preserve**; shared ESP → **preserve** (not reformat)
+- **After storage editor:** Fedora btrfs, swap, new ESP (Linux-only) → **preserve** / not set to reformat
+- **Reinstall keeping `/home`:** `/home` → **preserve**; `/` (and `/boot` if used) → reformat only if you intend to wipe them
 
 ## Storage editor (manual layouts)
 
@@ -259,6 +316,7 @@ Works on **one disk**, **dual boot with Windows**, or **split across multiple di
    - **Do not** rely on **Share disk with other operating systems** alone after a custom storage-editor layout — it uses guided reclaim, not your subvolumes
    - In **Mount point assignment**, verify every subvolume is bound: start with **`/`** on the `root` subvolume, then **`/boot/efi`** on ESP, then `/home`, `/var/cache`, `/var/log`, …
    - **Skip `/boot`:** Anaconda lists **`/boot`** as recommended — leave it **unassigned** or remove it (Option A has no `/boot` partition; do not create one to fill the slot)
+   - **Reformat:** see [Reformat — when to choose yes or no](#reformat--when-to-choose-yes-or-no) — after storage editor, **no** for ESP, btrfs subvolumes, and swap
    - If Anaconda reports *no root partition defined*, assign `root` → `/` here
 4. Enable **LUKS** on btrfs partition(s) in the storage editor *or* [Storage configuration](#3-storage-configuration) — see [Full disk encryption](#full-disk-encryption-option-a)
 
@@ -471,7 +529,7 @@ Skip or confirm encryption here if you already enabled **LUKS2** on the btrfs pa
 ## 4. Review and install
 
 1. Review summary — language, keyboard, disk, partition layout
-2. On dual boot: confirm Windows partitions show **preserve**, not **reformat**
+2. Confirm **preserve** vs **reformat** on every partition ([Reformat](#reformat--when-to-choose-yes-or-no)); dual boot: Windows and shared ESP must be **preserve**
 3. **Begin installation** (button text may read **Erase data and install** on whole-disk installs)
 4. Wait for completion
 5. **Encrypted Option A:** complete [GRUB setup from the live ISO](#after-install--grub-setup-from-live-iso) — do **not** reboot yet
