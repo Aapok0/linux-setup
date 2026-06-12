@@ -31,11 +31,7 @@ Steps **not** in the Fedora 44 installer (moved to first boot):
 - User account creation
 - Software / desktop selection (KDE Plasma is baked into the Spin ISO)
 
-## Boot installer
-
-1. Boot the Fedora KDE Plasma Spin live image (UEFI)
-2. Choose **Try Fedora** (live session)
-3. Launch **Install to Hard Drive** from the desktop (or the welcome dialog)
+**Reading order:** [Windows prep](#windows-dual-boot--prepare-before-partitioning) (dual boot only) → [Boot live image](#boot-installer) → [Live session setup](#live-session--before-the-installer) → installer **1–2** → [storage editor](#storage-editor-manual-layouts) if using Option A / custom layout → **3–4** → [encryption](#full-disk-encryption-option-a) GRUB steps if needed → [First boot](#first-boot--plasma-setup) → [Post-install](#post-install-setup).
 
 ## Windows dual boot — prepare before partitioning
 
@@ -73,6 +69,51 @@ Install **Windows first**, then Fedora. Windows overwrites the shared EFI boot c
 - UEFI boot mode (not legacy BIOS)
 - **SATA mode / storage controller** → **AHCI** or **NVMe** (not **RAID** / **Intel RST**). Linux cannot see Windows volumes on an RST/RAID array without dmraid setup; switch before installing either OS when possible
 - **Secure Boot** can stay enabled for Fedora; disable only if install media or NVIDIA drivers fail to boot
+
+## Boot installer
+
+1. Boot the Fedora KDE Plasma Spin live image (UEFI)
+2. Choose **Try Fedora** (live session)
+3. Complete [Live session — before the installer](#live-session--before-the-installer) (keyboard, network, encryption prep)
+4. Launch **Install to Hard Drive** from the desktop (or the welcome dialog)
+
+## Live session — before the installer
+
+Do this in the **live desktop session** before opening **Install to Hard Drive**. You need a working keyboard layout for terminal work (encryption patch, post-install GRUB steps) and for typing passphrases consistently.
+
+### Finnish keyboard
+
+The Anaconda **Welcome** screen also sets keyboard layout, but the **live session terminal** uses the layout below until then. Set both console and graphical layouts:
+
+```bash
+localectl set-keymap fi
+localectl set-x11-keymap fi
+```
+
+Verify:
+
+```bash
+localectl status
+```
+
+### Internet connection
+
+Ethernet usually works immediately. Check:
+
+```bash
+ip link
+ping -c 1 fedoraproject.org
+```
+
+Wi-Fi (if needed): use the NetworkManager applet in the panel, or `nmcli` / `nmtui` from a terminal.
+
+### Option A full disk encryption — Anaconda patch
+
+If you plan [Option A](#option-a--snapper-ready-btrfs-recommended) with **`/boot` on encrypted root** ([Full disk encryption](#full-disk-encryption-option-a)), patch Anaconda **now** — before starting the installer. The Web UI blocks encrypted `/boot` otherwise.
+
+See [Before install — Anaconda patch](#before-install--anaconda-patch-live-iso) for the full steps (`localectl` above first so `sudo` password entry uses Finnish layout).
+
+Rebooting the live session clears the patch — complete the install in the same session, or re-apply after reboot.
 
 ## 1. Welcome
 
@@ -124,9 +165,11 @@ Use when partitions are already laid out (external tool, previous Linux install,
 3. Add optional mount points (`/home`, swap, …) as needed
 4. Continue to [Storage configuration](#3-storage-configuration)
 
-### Storage editor (manual layouts)
+For btrfs + Snapper or custom layouts, use the [storage editor](#storage-editor-manual-layouts) from step 2 before continuing to step 3.
 
-Open **⋮** (top-right) → **Launch storage editor** from the installation method / storage screen.
+## Storage editor (manual layouts)
+
+Open **⋮** (top-right) → **Launch storage editor** from the installation method / storage screen (step 2).
 
 Cockpit Storage applies changes **immediately** on disk (unlike the main Anaconda flow, which commits on **Review and install**). All layouts assume UEFI.
 
@@ -406,6 +449,26 @@ cat /etc/crypttab
 
 </details>
 
+
+## 3. Storage configuration
+
+Skip or confirm encryption here if you already enabled **LUKS2** on the btrfs partition in the storage editor.
+
+1. **Encrypt my data** — enable if the btrfs system partition is not yet encrypted (recommended on Linux-only installs; dual boot encrypts Fedora volumes only, not Windows)
+2. If enabling encryption (here or already done in storage editor):
+   - Set **passphrase** (typed with the layout active in the live session / installer — see [Live session](#live-session--before-the-installer) and step 1)
+   - Choose **keyboard layout during boot** (LUKS prompt; may default to US layout)
+3. Continue
+
+## 4. Review and install
+
+1. Review summary — language, keyboard, disk, partition layout
+2. On dual boot: confirm Windows partitions show **preserve**, not **reformat**
+3. **Begin installation** (button text may read **Erase data and install** on whole-disk installs)
+4. Wait for completion
+5. **Encrypted Option A:** complete [GRUB setup from the live ISO](#after-install--grub-setup-from-live-iso) — do **not** reboot yet
+6. Reboot and remove installation media
+
 ## Full disk encryption (Option A)
 
 For Option A with **`/boot` inside encrypted root** — ESP stays unencrypted (`/boot/efi`); GRUB must unlock LUKS before reading boot files. Fedora’s default encrypted layout uses a **separate unencrypted `/boot`**; this layout does **not**.
@@ -422,30 +485,37 @@ UEFI → shim (ESP) → GRUB cryptomount (system LUKS only) → LUKS passphrase
 
 ##### Before install — Anaconda patch (live ISO)
 
-Web UI blocks encrypted `/boot` unless you patch Anaconda on the **live ISO** first:
+Web UI blocks encrypted `/boot` unless you patch Anaconda on the **live ISO** first. Complete [Live session — Finnish keyboard](#finnish-keyboard) before this — you need Finnish layout for `sudo` and passphrase work in the terminal.
 
-1. Open a terminal on the live session (before or during install)
-2. Become root:
+1. Open a terminal on the live session (**before** launching **Install to Hard Drive**)
+2. Set Finnish keyboard if not already done:
+
+   ```bash
+   localectl set-keymap fi
+   localectl set-x11-keymap fi
+   ```
+
+3. Become root:
 
    ```bash
    sudo -i
    ```
 
-3. Find the file (Python version on the ISO may differ):
+4. Find the file (Python version on the ISO may differ):
 
    ```bash
    find /usr/lib -path '*/pyanaconda/modules/storage/bootloader/base.py' 2>/dev/null
    ```
 
-4. Edit that file, e.g.:
+5. Edit that file, e.g.:
 
    ```bash
    nano --linenumbers /usr/lib64/python3.14/site-packages/pyanaconda/modules/storage/bootloader/base.py
    ```
 
-5. Go to line ~184: `Ctrl+_`, enter `184`, Enter
-6. Change `encryption_support = False` → `encryption_support = True`
-7. Save and exit: `Ctrl+O`, Enter, then `Ctrl+X`
+6. Go to line ~184: `Ctrl+_`, enter `184`, Enter
+7. Change `encryption_support = False` → `encryption_support = True`
+8. Save and exit: `Ctrl+O`, Enter, then `Ctrl+X`
 
 Rebooting the live session clears this patch — complete the install in the same session, or re-apply after reboot.
 
@@ -467,6 +537,8 @@ Rebooting the live session clears this patch — complete the install in the sam
 ##### After install — GRUB setup (from live ISO)
 
 **Do not reboot** after installation completes. Stay in the live session and open a terminal.
+
+Re-apply [Finnish keyboard](#finnish-keyboard) if you rebooted the live session since the Anaconda patch.
 
 1. Find the **system** disk and its LUKS partition (home disk is handled separately — see below):
 
@@ -655,25 +727,6 @@ sudo lsinitrd /boot/initramfs-$(uname -r).img | grep -i luks
 ```
 
 LUKS prompt may use **US keyboard layout** — see [First boot — LUKS passphrase](#luks-passphrase).
-
-## 3. Storage configuration
-
-Skip or confirm encryption here if you already enabled **LUKS2** on the btrfs partition in the storage editor.
-
-1. **Encrypt my data** — enable if the btrfs system partition is not yet encrypted (recommended on Linux-only installs; dual boot encrypts Fedora volumes only, not Windows)
-2. If enabling encryption (here or already done in storage editor):
-   - Set **passphrase**
-   - Choose **keyboard layout during boot** (LUKS prompt; may default to US layout)
-3. Continue
-
-## 4. Review and install
-
-1. Review summary — language, keyboard, disk, partition layout
-2. On dual boot: confirm Windows partitions show **preserve**, not **reformat**
-3. **Begin installation** (button text may read **Erase data and install** on whole-disk installs)
-4. Wait for completion
-5. **Encrypted Option A:** complete [GRUB setup from the live ISO](#after-install--grub-setup-from-live-iso) — do **not** reboot yet
-6. Reboot and remove installation media
 
 ## First boot — Plasma Setup
 
