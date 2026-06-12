@@ -2,7 +2,7 @@
 
 For reinstalling Arch Linux with my personal preferences while preserving /home partition and existing configurations.
 
-> **Automation:** Root filesystem layout and chroot reinstall can be adapted from `./scripts/install-arch` (home disk preserved). After reboot, `./setup arch` applies [Post-install steps](#post-install-steps) automatically. This document remains the manual reference.
+> **Automation:** On the running system before live boot: `sudo ./install arch --backup` (or manual steps in [Backup configuration files](#backup-configuration-files)). From the live ISO (as root): `./install arch --reinstall` — preserves `/home`, reformats root, restores configs from `~/install/etc/`. After reboot: `./setup arch` for [Post-install steps](#post-install-steps). This document remains the manual reference.
 
 ## Initial steps
 
@@ -36,7 +36,13 @@ iwctl station wlan0 connect <your_SSID>
 
 ### Backup configuration files
 
-Before starting the reinstall, backup the following configuration files to `/home/<user>/install/`. This allows you to restore your system configuration after the fresh installation:
+Before starting the reinstall, back up system configs to `~/install/etc/`:
+
+```bash
+sudo ./install arch --backup
+```
+
+Or copy manually to `/home/<user>/install/`:
 
 ```bash
 mkdir -p /home/<user>/install/etc/{default,xdg/reflector,snapper/configs}

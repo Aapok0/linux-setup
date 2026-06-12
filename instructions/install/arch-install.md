@@ -2,7 +2,7 @@
 
 For installing Arch Linux with my personal preferences.
 
-> **Automation:** The same flow can be run from the Arch live ISO with `./scripts/install-arch` (partitioning, btrfs layout, chroot install). After first boot, `./setup arch` automates the [Post-install steps](#post-install-steps) below (Snapper, snap-pac, `/boot` backup hooks, grub-btrfs, overlayfs initramfs). Keep this document for manual installs or when you want step-by-step control.
+> **Automation:** From the Arch live ISO (as root): `./install arch` — partitioning, btrfs layout, chroot install. After first boot: `./setup arch` for [Post-install steps](#post-install-steps) (Snapper, snap-pac, `/boot` backup hooks, grub-btrfs, overlayfs initramfs). Keep this document for manual installs or step-by-step control.
 
 ## Initial steps
 

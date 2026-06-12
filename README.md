@@ -16,11 +16,13 @@ The setup script detects (or accepts as argument) whether the system is Arch, De
 8. Sets up NordVPN with systemd-resolved
 9. Registers Steam Tinker Launch as a Steam compatibility tool
 
-**Arch-specific:** Enables multilib, installs `paru` (AUR helper).
+**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs).
 
 **Debian-specific:** Installs `nala` and apt tools, installs `pyenv`/`nvm`/`tfswitch` manually (no AUR), adds NordVPN repo.
 
-**Fedora-specific:** Enables RPM Fusion, installs packages from `dnf_*`, `rpmfusion_*`, and `flatpak_*` groups in `vars/fedora-vars`, installs `pyenv`/`nvm`/`tfswitch` manually, adds NordVPN repo.
+**Fedora-specific:** Enables RPM Fusion, installs packages from `dnf_*`, `rpmfusion_*`, and `flatpak_*` groups in `vars/fedora-vars`, configures btrfs Snapper (when root is btrfs), installs `pyenv`/`nvm`/`tfswitch` manually, adds NordVPN repo.
+
+Setup scripts are safe to re-run: package installs skip already-installed packages, and shared helpers in `scripts/lib/common.sh` guard groups, systemd units, multilib, and pip user installs. System upgrades (`paru -Syu`, `apt upgrade`, `dnf upgrade`) still run each time.
 
 Output is logged to `logs/<timestamp>_setup.log` (absolute path under repo root).
 
@@ -29,15 +31,19 @@ Output is logged to `logs/<timestamp>_setup.log` (absolute path under repo root)
 ## Repository structure
 
 ```
-├── setup                       # Entry point — detects distro and dispatches
+├── setup                       # Entry point — post-install setup (detects distro)
+├── install                     # Entry point — Arch install / reinstall / backup
 ├── scripts/
 │   ├── lib/
-│   │   └── common.sh           # Shared logging and setup helpers
+│   │   ├── common.sh           # Shared logging and setup helpers
+│   │   └── install.sh          # Shared Arch install/reinstall helpers
 │   ├── setup-arch              # Full Arch (KDE) setup
 │   ├── setup-debian            # Full Debian (KDE) setup
 │   ├── setup-fedora            # Full Fedora (KDE) setup
 │   ├── setup-arch-i3           # Older i3-based Arch setup (unused)
-│   └── install-arch            # Arch Linux live ISO install script
+│   ├── install-arch            # Arch Linux fresh install (live ISO)
+│   ├── install-arch-reinstall  # Arch reinstall (preserves /home)
+│   └── install-arch-backup     # Arch reinstall config backup (live system)
 ├── vars/
 │   ├── arch-vars               # Package lists for Arch (pacman & paru/AUR)
 │   ├── debian-vars             # Package lists for Debian (apt & extras)
@@ -77,10 +83,10 @@ your_username ALL=(ALL:ALL) NOPASSWD: ALL
 
 1. Clone this repo and enter the directory.
 
-2. Make scripts executable:
+2. Make scripts executable, if not already:
 
 ```bash
-chmod u+x setup scripts/*
+chmod u+x setup install scripts/*
 ```
 
 3. Run:
@@ -95,15 +101,35 @@ chmod u+x setup scripts/*
 
 The script auto-detects the distro from `/etc/os-release`. Pass `arch`, `debian`, or `fedora` manually if detection fails.
 
-### Arch install (live ISO)
+### Arch install
 
-From the Arch live environment, run as root:
+Entry point: `./install arch`
+
+**Fresh install (live ISO, as root):**
 
 ```bash
-./scripts/install-arch
+./install arch
 ```
 
-Automates the flow in `instructions/install/arch-install.md`: partitioning, optional LUKS encryption, LVM, btrfs subvolumes, pacstrap, boot setup (GRUB/mkinitcpio), localization, user creation, KDE Plasma, and optional reboot. Logs to `logs/<timestamp>_install-arch.log`.
+Destroys target disks. Automates `instructions/install/arch-install.md`: partitioning, optional LUKS encryption, LVM, btrfs subvolumes, pacstrap, boot setup (GRUB/mkinitcpio), localization, user creation, KDE Plasma, and optional reboot.
+
+**Reinstall (live ISO, as root):**
+
+```bash
+./install arch --reinstall
+```
+
+Preserves `/home`, reformats root only, restores boot configs from backup, recreates users, installs KDE Plasma.
+
+**Config backup (running system, before rebooting to live ISO):**
+
+```bash
+sudo ./install arch --backup
+```
+
+Copies `/etc` configs to `~/install/etc/` for reinstall restore (see `instructions/install/arch-reinstall.md`).
+
+Logs: `logs/<timestamp>_install-arch.log`, `_install-arch-reinstall.log`, or `_install-arch-backup.log`.
 
 ## Post-setup
 
@@ -126,13 +152,8 @@ These steps are also printed by the script on completion:
    mkdir -p ~/Python && cd ~/Python
    python -m venv <name>
    ```
-6. Open Neovim and install Mason tools:
-   ```bash
-   nvim
-   # Let lazy.nvim install plugins, then run:
-   # :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
-   ```
-7. Open tmux and install plugins: `tmux` then `ctrl+space I`.
+6. Open Neovim if you want to verify plugins (`just install` already syncs Lazy.nvim and Mason tools).
+7. Open tmux and install plugins: `tmux` then `ctrl+space I` (TPM runs during `just install`; reload tmux config if needed).
 
 ## Unfinished / TODO
 
