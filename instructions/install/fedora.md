@@ -666,64 +666,158 @@ Re-apply [Finnish keyboard](#finnish-keyboard) if you rebooted the live session 
    sudo chroot /mnt/sysroot /bin/bash --login    # or /mnt/sysimage
    ```
 
-5. Get the LUKS UUID (dashes removed for GRUB):
+   Inside chroot you are **root** — run `grub2-mkconfig`, `nano`, `dracut` **without** `sudo` (`sudo` inside this chroot can fail with *unable to allocate pty*).
 
    ```bash
-   lsblk -pf /dev/nvme0n1
-   # UUID on the crypto_LUKS line, e.g. 563b9fda-bd6a-4c14-97a3-7317d34818ea → 563b9fdabd6a4c1497a37317d34818ea
+   findmnt /
+   ls /boot/grub2/grub.cfg /boot/vmlinuz-*
    ```
 
-6. Prepend to ESP GRUB config:
+5. LUKS device and UUID (for `cryptomount` — UUID **without** dashes in GRUB):
 
    ```bash
-   sudo nano /boot/efi/EFI/fedora/grub.cfg
+   LUKS_DEVICE="$(findmnt -no SOURCE /)"    # e.g. /dev/mapper/luks_root
+   LUKS_UUID="$(cryptsetup luksUUID "$LUKS_DEVICE")"
+   echo "$LUKS_DEVICE  $LUKS_UUID  (GRUB: ${LUKS_UUID//-/})"
    ```
 
-   First line:
+   Optional check — flag is `--target=device` (equals), **not** `--target-device`:
+
+   ```bash
+   grub2-probe --target=device /
+   ```
+
+6. Fix ESP GRUB config (`/boot/efi/EFI/fedora/grub.cfg`).
+
+   **Read the file first** — do not blindly rewrite the `prefix` line:
+
+   ```bash
+   cat /boot/efi/EFI/fedora/grub.cfg
+   ```
+
+   Option A with btrfs subvolume `root` usually already has the **correct** prefix:
+
+   ```text
+   set prefix=($dev)/root/boot/grub2
+   ```
+
+   Here **`root` is the btrfs subvolume name**, not a mistake. **Leave this line alone** if it already looks like that.
+
+   Only if the prefix is the short Anaconda form `set prefix=($dev)/grub2`, change it to include the subvolume:
+
+   ```bash
+   SUBVOL="$(btrfs subvolume show / | awk '/^Name:/ {print $2}')"   # usually root
+   sed -i "s#(\$dev)/grub2#(\$dev)/${SUBVOL}/boot/grub2#g" /boot/efi/EFI/fedora/grub.cfg
+   ```
+
+   **Always** prepend `cryptomount` if line 1 is not already `cryptomount -u …`:
+
+   ```bash
+   # LUKS_DEVICE / LUKS_UUID from step 5
+   cp -a /boot/efi/EFI/fedora/grub.cfg /boot/efi/EFI/fedora/grub.cfg.bak
+   grep -q '^cryptomount -u ' /boot/efi/EFI/fedora/grub.cfg || \
+       sed -i "1i cryptomount -u ${LUKS_UUID//-/}" /boot/efi/EFI/fedora/grub.cfg
+   cat /boot/efi/EFI/fedora/grub.cfg
+   ```
+
+   Expected shape (UUIDs differ):
 
    ```
-   cryptomount -u <UUID_WITHOUT_DASHES>
+   cryptomount -u <LUKS_UUID_WITHOUT_DASHES>
+   search --no-floppy --fs-uuid --set=dev <ROOT_BTRFS_FS_UUID>
+   set prefix=($dev)/root/boot/grub2
+   export $prefix
+   configfile $prefix/grub.cfg
    ```
-
-   Save and exit: `Ctrl+O`, Enter, then `Ctrl+X`
 
 7. Configure GRUB cryptodisk:
 
    ```bash
-   sudo nano /etc/default/grub
+   nano /etc/default/grub
    ```
 
-   Add at the end:
+   Add at the end if missing:
 
    ```
    GRUB_ENABLE_CRYPTODISK=y
    GRUB_PRELOAD_MODULES="cryptodisk luks"
    ```
 
-   Save and exit: `Ctrl+O`, Enter, then `Ctrl+X`
-
-8. Regenerate GRUB config and initramfs:
+8. Regenerate GRUB config and initramfs (no `sudo` — already root in chroot):
 
    ```bash
-   sudo grub2-mkconfig -o /boot/grub2/grub.cfg
-   sudo dracut -vf
+   grub2-mkconfig -o /boot/grub2/grub.cfg
+   dracut -vf
    ```
 
 9. **Optional — TPM2 auto-unlock** (GRUB still prompts unless configured otherwise):
 
    ```bash
-   sudo systemd-cryptenroll --tpm2-device=list
-   sudo systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p3
-   sudo systemd-cryptenroll /dev/nvme0n1p3    # list enrolled methods
-   sudo dracut -vf
+   systemd-cryptenroll --tpm2-device=list
+   systemd-cryptenroll --tpm2-device=auto "$LUKS_DEVICE"
+   systemd-cryptenroll "$LUKS_DEVICE"
+   dracut -vf
    ```
 
-10. Exit chroot and reboot:
+10. **Do not reboot** until all of the following pass inside chroot:
+
+    ```bash
+    test -f /boot/grub2/grub.cfg && test -n "$(ls /boot/vmlinuz-* 2>/dev/null)" || echo "MISSING KERNEL"
+    head -n 1 /boot/efi/EFI/fedora/grub.cfg | grep -q '^cryptomount -u ' || echo "MISSING cryptomount"
+    grep -qE 'prefix=\(\$dev\)/[^/]+/boot/grub2' /boot/efi/EFI/fedora/grub.cfg || echo "WRONG prefix — need (\$dev)/<subvol>/boot/grub2"
+    cryptsetup luksDump "$LUKS_DEVICE" | grep -q pbkdf2 || echo "MISSING PBKDF2 slot for GRUB"
+    ```
+
+11. Exit chroot and reboot:
 
     ```bash
     exit
     sudo reboot
     ```
+
+##### GRUB rescue (`grub>`) after reboot — recovery
+
+A **`grub>`** prompt means GRUB started from the ESP but **failed to load `grub.cfg`**. Boot the **live USB** again. This path differs from step 4 above — you mount the system yourself:
+
+```bash
+sudo cryptsetup open /dev/nvme0n1p3 luks_root          # adjust
+sudo mount -o subvol=root /dev/mapper/luks_root /mnt
+sudo mount /dev/nvme0n1p1 /mnt/boot/efi
+```
+
+If `findmnt /` or `grub2-probe --target=device /` fails after chroot, add bind mounts **only then** ([recovery chroot](#recovery-chroot-bind-mounts)). Otherwise:
+
+```bash
+sudo chroot /mnt /bin/bash --login
+```
+
+Re-run [steps 3–8](#after-install--grub-setup-from-live-iso). Reboot; then `./setup fedora` for the [cryptomount auto-fix](../../config/fedora/grub-cryptomount/README.md).
+
+<details>
+<summary>Recovery chroot bind mounts (only if <code>grub2-probe</code> fails)</summary>
+
+```bash
+sudo mount --bind /dev  /mnt/dev
+sudo mount --bind /proc /mnt/proc
+sudo mount --bind /sys  /mnt/sys
+sudo mount --bind /run /mnt/run
+sudo chroot /mnt /bin/bash --login
+```
+
+</details>
+
+**Common causes**
+
+| Symptom / mistake | What happened |
+|-------------------|---------------|
+| Rebooted right after Anaconda finished | [Post-install GRUB steps](#after-install--grub-setup-from-live-iso) never run |
+| Missing `cryptomount` as first line of ESP `grub.cfg` | GRUB cannot open LUKS before `configfile` |
+| Changed `($dev)/root/boot/grub2` → `($dev)/boot/grub2` | Broke a correct prefix — `root` is the btrfs subvolume name |
+| Prefix still `($dev)/grub2` (short form) | Needs `($dev)/root/boot/grub2` for Option A |
+| LUKS2 without PBKDF2 slot | GRUB cannot unlock the volume |
+| `grub2-mkconfig` / `dracut` never completed | No usable `/boot/grub2/grub.cfg` or initramfs |
+| Anaconda patch not applied | Boot files may be missing or mislaid on encrypted btrfs |
+| `cryptomount` UUID has dashes | Must be `cryptomount -u <uuid-without-dashes>` |
 
 ##### Encrypted `/home` on a separate disk
 
