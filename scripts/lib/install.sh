@@ -1009,7 +1009,7 @@ _detect_gpu_packages() {
     if echo "$vga_line" | grep -qi 'nvidia'; then
         echo "nvidia nvidia-utils nvidia-lts"
     elif echo "$vga_line" | grep -qiE 'amd|ati|radeon'; then
-        echo "mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon"
+        echo "mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon vulkan-mesa-implicit-layers lib32-vulkan-mesa-implicit-layers"
     elif echo "$vga_line" | grep -qi 'intel'; then
         echo "mesa lib32-mesa intel-media-driver"
     elif echo "$vga_line" | grep -qi 'vmware'; then
@@ -1034,7 +1034,7 @@ _prompt_gpu_packages() {
         read -p "Select GPU driver set [1-5]: " choice
 
         case $choice in
-            1) echo "mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon"; return 0 ;;
+            1) echo "mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon vulkan-mesa-implicit-layers lib32-vulkan-mesa-implicit-layers"; return 0 ;;
             2) echo "mesa lib32-mesa intel-media-driver"; return 0 ;;
             3) echo "nvidia nvidia-utils nvidia-lts"; return 0 ;;
             4) echo "xf86-video-vmware"; return 0 ;;

@@ -558,7 +558,7 @@ Install GPU drivers:
 lspci
 
 # AMD
-pacman -S mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon
+pacman -S mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon vulkan-mesa-implicit-layers lib32-vulkan-mesa-implicit-layers
 # Intel broadwell or newer
 pacman -S mesa lib32-mesa intel-media-driver
 # Nvidia
