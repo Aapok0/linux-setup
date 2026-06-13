@@ -13,14 +13,17 @@ The setup script detects (or accepts as argument) whether the system is Arch, De
 5. Installs additional packages not covered by the justfile (see `vars/`)
 6. Prompts for git user configuration (`~/.config/git/config.local`)
 7. Installs KDE Plasma packages, apps, and gaming packages
-8. Sets up NordVPN with systemd-resolved
+8. Installs Cursor IDE (official repo on Fedora/Debian; `cursor-bin` AUR on Arch)
+9. Sets up NordVPN with systemd-resolved
 9. Registers Steam Tinker Launch as a Steam compatibility tool
 
-**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs).
+**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs). Desktop apps from AUR include `cursor-bin` (official `.deb`-based Cursor build).
 
-**Debian-specific:** Installs `nala` and apt tools, installs `pyenv`/`nvm`/`tfswitch` manually (no AUR), adds NordVPN repo.
+**Debian-specific:** Installs `nala` and apt tools, `ghostty` via [debian.griffo.io](https://ghostty.org/docs/install/binary#debian), Cursor via official APT repo, `pyenv`/`nvm` manually (no AUR), adds NordVPN repo.
 
-**Fedora-specific:** Enables RPM Fusion, installs packages from `dnf_*`, `rpmfusion_*`, and `flatpak_*` groups in `vars/fedora-vars`, configures btrfs Snapper (when root is btrfs), installs `pyenv`/`nvm`/`tfswitch` manually, adds NordVPN repo.
+**Fedora-specific:** Enables RPM Fusion, installs packages from `dnf_*`, `rpmfusion_*`, and `flatpak_*` groups in `vars/fedora-vars`, configures btrfs Snapper (when root is btrfs), `ghostty` via COPR `scottames/ghostty`, Firefox Wayland (`MOZ_ENABLE_WAYLAND=1`), Cursor via official DNF repo, system-scope Flatpak installs, `pyenv`/`nvm` manually, adds NordVPN repo. Skips `power-profiles-daemon` when `tuned-ppd` is installed.
+
+Setup scripts record errors in a counter (`SETUP_ERRORS`) and exit non-zero at the end if any step failed; interactive prompts are not aborted by `set -e`.
 
 Setup scripts are safe to re-run: package installs skip already-installed packages, and shared helpers in `scripts/lib/common.sh` guard groups, systemd units, multilib, and pip user installs. System upgrades (`paru -Syu`, `apt upgrade`, `dnf upgrade`) still run each time.
 
@@ -149,14 +152,15 @@ These steps are also printed by the script on completion:
 
 1. Reboot the machine.
 2. Open Ghostty (terminal emulator).
-3. If a firewall was already installed, check its rules.
-4. Install nvm and Node.js:
+3. Open Cursor (`cursor` in app menu or terminal).
+4. If a firewall was already installed, check its rules.
+5. Install nvm and Node.js:
    ```bash
    # Get install command from: https://github.com/nvm-sh/nvm#installing-and-updating
    exec zsh
    nvm install node
    ```
-5. Set up Python with pyenv:
+6. Set up Python with pyenv:
    ```bash
    pyenv install -l | less
    pyenv install <version>
@@ -164,8 +168,8 @@ These steps are also printed by the script on completion:
    mkdir -p ~/Python && cd ~/Python
    python -m venv <name>
    ```
-6. Open Neovim if you want to verify plugins (`just install` already syncs Lazy.nvim and Mason tools).
-7. Open tmux and install plugins: `tmux` then `ctrl+space I` (TPM runs during `just install`; reload tmux config if needed).
+7. Open Neovim if you want to verify plugins (`just install` already syncs Lazy.nvim and Mason tools).
+8. Open tmux and install plugins: `tmux` then `ctrl+space I` (TPM runs during `just install`; reload tmux config if needed).
 
 ## Unfinished / TODO
 

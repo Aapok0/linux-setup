@@ -129,6 +129,7 @@ _install_ghostty() {
     _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
     _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
     _install_ghostty
+    _install_cursor
     _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
 
     if command -v steamtinkerlaunch &>/dev/null; then

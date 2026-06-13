@@ -428,3 +428,86 @@ _ensure_ssh_ed25519_key() {
     _echo_run chmod 600 "$key"
     [ -f "${key}.pub" ] && _echo_run chmod 644 "${key}.pub"
 }
+
+_cursor_installed() {
+    command -v cursor &>/dev/null && return 0
+    rpm -q cursor &>/dev/null && return 0
+    dpkg -l cursor 2>/dev/null | grep -q '^ii'
+}
+
+_install_cursor_fedora() {
+    local repo_file=/etc/yum.repos.d/cursor.repo
+
+    if [ ! -f "$repo_file" ]; then
+        _info "Adding Cursor DNF repository..."
+        printf '%s\n' \
+            '[cursor]' \
+            'name=Cursor' \
+            'baseurl=https://downloads.cursor.com/yumrepo' \
+            'enabled=1' \
+            'gpgcheck=1' \
+            'gpgkey=https://downloads.cursor.com/keys/anysphere.asc' \
+            'repo_gpgcheck=1' \
+            | _echo_run sudo tee "$repo_file" > /dev/null
+    fi
+
+    if rpm -q cursor &>/dev/null; then
+        _info "Cursor already installed"
+        return 0
+    fi
+
+    _info "Installing Cursor from official repository..."
+    _echo_run sudo dnf install -y cursor
+}
+
+_install_cursor_debian() {
+    local list_file=/etc/apt/sources.list.d/cursor.list
+    local keyring=/usr/share/keyrings/cursor.gpg
+
+    if [ ! -f "$list_file" ]; then
+        _info "Adding Cursor APT repository..."
+        _echo_run sudo mkdir -p /usr/share/keyrings
+        _echo_run curl -fsSL https://downloads.cursor.com/keys/anysphere.asc \
+            | sudo gpg --dearmor -o "$keyring"
+        printf '%s\n' \
+            "deb [signed-by=${keyring}] https://downloads.cursor.com/aptrepo stable main" \
+            | _echo_run sudo tee "$list_file" > /dev/null
+        if command -v nala &>/dev/null; then
+            _echo_run sudo nala update
+        else
+            _echo_run sudo apt-get update
+        fi
+    fi
+
+    if dpkg -l cursor 2>/dev/null | grep -q '^ii'; then
+        _info "Cursor already installed"
+        return 0
+    fi
+
+    _info "Installing Cursor from official repository..."
+    if command -v nala &>/dev/null; then
+        _echo_run sudo nala install -y cursor
+    else
+        _echo_run sudo apt-get install -y cursor
+    fi
+}
+
+_install_cursor() {
+    if _cursor_installed; then
+        _info "Cursor already installed"
+        return 0
+    fi
+
+    if [ -f /etc/fedora-release ] || grep -q 'ID=fedora' /etc/os-release 2>/dev/null; then
+        _install_cursor_fedora
+        return $?
+    fi
+
+    if grep -qE 'ID=debian|ID_LIKE=.*debian' /etc/os-release 2>/dev/null; then
+        _install_cursor_debian
+        return $?
+    fi
+
+    _warn "Cursor install not configured for this distribution"
+    return 0
+}

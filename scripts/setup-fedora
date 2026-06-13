@@ -490,6 +490,7 @@ main() {
     _install_packages "dnf apps" "${dnf_apps[@]}"
     _setup_firefox_wayland
     _install_ghostty
+    _install_cursor
     _info "Installing dnf gaming packages..."
     _install_packages "dnf gaming" "${dnf_gaming[@]}"
     _info "Installing RPM Fusion free packages..."
@@ -513,6 +514,10 @@ main() {
             _info "$tool already available"
             continue
         }
+        if pipx list 2>/dev/null | grep -q "package ${tool} "; then
+            _info "$tool already installed via pipx"
+            continue
+        fi
         _echo_run pipx install "$tool"
     done
 

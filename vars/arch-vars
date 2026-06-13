@@ -66,6 +66,7 @@ apps=(
 )
 
 apps_aur=(
+    "cursor-bin"
     "spotify"
     "bitwarden"
     "nordvpn-bin"
