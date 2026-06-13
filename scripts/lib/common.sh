@@ -322,3 +322,70 @@ _setup_git_config() {
 EOF
     _info "Git user config created at $config_file"
 }
+
+_setup_hostname() {
+    local hostname current
+
+    current=$(cat /etc/hostname 2>/dev/null || hostname -s 2>/dev/null || echo "")
+    _section "System hostname"
+    [ -n "$current" ] && _out "Current: ${current}"
+
+    if ! _prompt_yes_no "Set hostname? (y/n): "; then
+        return 0
+    fi
+
+    while true; do
+        read -r -p "Enter hostname [${current}]: " hostname
+        hostname=${hostname:-$current}
+
+        if [[ $hostname =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+            break
+        fi
+
+        _error "Invalid hostname. Use letters, numbers, underscore, or hyphen."
+    done
+
+    if [ "$hostname" = "$current" ]; then
+        _info "Hostname unchanged"
+        return 0
+    fi
+
+    _info "Setting hostname to ${hostname}..."
+    if command -v hostnamectl &>/dev/null; then
+        _echo_run sudo hostnamectl set-hostname "$hostname"
+    else
+        _echo_run sudo tee /etc/hostname > /dev/null <<< "$hostname"
+        _echo_run sudo hostname "$hostname"
+    fi
+}
+
+_wheel_sudo_nopasswd_enabled() {
+    grep -rE '^[[:space:]]*#?[[:space:]]*%wheel[[:space:]].*NOPASSWD' \
+        /etc/sudoers /etc/sudoers.d/* 2>/dev/null \
+        | grep -qvE '^[[:space:]]*#'
+}
+
+_setup_wheel_nopasswd_sudo() {
+    local user=$1
+    local sudoers_file=/etc/sudoers.d/99-linux-setup-wheel
+
+    _section "Passwordless sudo (wheel group)"
+
+    if _wheel_sudo_nopasswd_enabled; then
+        _info "NOPASSWD for %wheel already configured"
+    elif ! _prompt_yes_no "Enable passwordless sudo for wheel group? (y/n): "; then
+        _ensure_user_in_group "$user" wheel
+        return 0
+    else
+        _info "Enabling NOPASSWD for %wheel in ${sudoers_file}..."
+        printf '%s\n' '%wheel ALL=(ALL) NOPASSWD: ALL' | _echo_run sudo tee "$sudoers_file" > /dev/null
+        _echo_run sudo chmod 440 "$sudoers_file"
+        _echo_run sudo visudo -cf "$sudoers_file" || {
+            _error "sudoers validation failed; removing ${sudoers_file}"
+            _echo_run sudo rm -f "$sudoers_file"
+            return 1
+        }
+    fi
+
+    _ensure_user_in_group "$user" wheel
+}

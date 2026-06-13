@@ -581,6 +581,36 @@ UEFI → shim (ESP) → GRUB cryptomount (system LUKS only) → LUKS passphrase
      → mount / and /home → boot
 ```
 
+**GRUB passphrase and keyboard layout**
+
+The **first** LUKS prompt (before the GRUB menu) comes from **GRUB `cryptomount`** — not initramfs, not TPM. It defaults to **US keyboard layout**.
+
+| Approach | Passphrase rules |
+|----------|------------------|
+| **US layout at GRUB prompt** *(default)* | Type as **US physical keys** on a Finnish keyboard. **Capital letters** (`A`–`Z`) work via Shift. Symbols work when typed as US keys — know US positions for `&` `+` etc. |
+| **Custom GRUB keymap** *(e.g. Finnish `fi.gkb` on ESP)* | Unreliable — Shift/AltGr often fail (`unknown key`) at the cryptomount prompt. If used: **lowercase `a-z` and `0-9` only** — no capitals, no symbols |
+
+Choose the passphrase during install with this in mind. To change it later from the **live ISO**:
+
+```bash
+sudo localectl set-keymap us    # match GRUB typing when testing
+```
+
+**Argon2id slot** (Linux / initramfs) — `luksChangeKey` is fine:
+
+```bash
+sudo cryptsetup luksChangeKey -S 0 /dev/nvme0n1p3    # adjust slot number from luksDump
+```
+
+**PBKDF2 slot** (GRUB) — **do not** use `luksChangeKey` (converts slot to argon2id and breaks GRUB). Kill and re-add:
+
+```bash
+sudo cryptsetup luksKillSlot /dev/nvme0n1p3 1         # pbkdf2 slot — adjust number
+sudo cryptsetup luksAddKey --pbkdf pbkdf2 --pbkdf-force-iterations 200000 /dev/nvme0n1p3
+```
+
+Use the **same passphrase** on both slots if you want one password for GRUB and Linux.
+
 ##### Before install — Anaconda patch (live ISO)
 
 Web UI blocks encrypted `/boot` unless you patch Anaconda on the **live ISO** first. Complete [Live session — Finnish keyboard](#finnish-keyboard) before this — you need Finnish layout for `sudo` and passphrase work in the terminal.
@@ -653,7 +683,7 @@ Re-apply [Finnish keyboard](#finnish-keyboard) if you rebooted the live session 
    sudo cryptsetup luksDump /dev/nvme0n1p3
    ```
 
-3. **LUKS2 only** — add a GRUB-compatible PBKDF2 key slot (use the **same passphrase** as during install):
+3. **LUKS2 only** — add a GRUB-compatible PBKDF2 key slot (use the **same passphrase** as during install — must meet [GRUB keyboard rules](#grub-passphrase-and-keyboard-layout)):
 
    ```bash
    sudo cryptsetup luksAddKey --pbkdf pbkdf2 --pbkdf-force-iterations 200000 /dev/nvme0n1p3
@@ -669,22 +699,31 @@ Re-apply [Finnish keyboard](#finnish-keyboard) if you rebooted the live session 
    Inside chroot you are **root** — run `grub2-mkconfig`, `nano`, `dracut` **without** `sudo` (`sudo` inside this chroot can fail with *unable to allocate pty*).
 
    ```bash
-   findmnt /
+   grub2-probe --target=device /
    ls /boot/grub2/grub.cfg /boot/vmlinuz-*
    ```
 
-5. LUKS device and UUID (for `cryptomount` — UUID **without** dashes in GRUB):
+5. LUKS UUID for `cryptomount` (GRUB wants UUID **without** dashes). Flag is `--target=device` (equals), **not** `--target-device`.
+
+   **Option A — `grub2-probe` + `cryptsetup`** (inside chroot):
 
    ```bash
-   LUKS_DEVICE="$(findmnt -no SOURCE /)"    # e.g. /dev/mapper/luks_root
+   LUKS_DEVICE="$(grub2-probe --target=device /)"
    LUKS_UUID="$(cryptsetup luksUUID "$LUKS_DEVICE")"
    echo "$LUKS_DEVICE  $LUKS_UUID  (GRUB: ${LUKS_UUID//-/})"
    ```
 
-   Optional check — flag is `--target=device` (equals), **not** `--target-device`:
+   **Option B — `lsblk -pf`**:
 
    ```bash
-   grub2-probe --target=device /
+   lsblk -pf /dev/nvme0n1    # adjust disk
+   ```
+
+   UUID from the **`crypto_LUKS`** line (e.g. `nvme0n1p3`), not ESP or btrfs. Remove dashes for GRUB:
+
+   ```
+   /dev/nvme0n1p3  ...  crypto_LUKS  ...  UUID=563b9fda-bd6a-4c14-97a3-7317d34818ea
+   → cryptomount -u 563b9fdabd6a4c1497a37317d34818ea
    ```
 
 6. Fix ESP GRUB config (`/boot/efi/EFI/fedora/grub.cfg`).
@@ -750,12 +789,11 @@ Re-apply [Finnish keyboard](#finnish-keyboard) if you rebooted the live session 
    dracut -vf
    ```
 
-9. **Optional — TPM2 auto-unlock** (GRUB still prompts unless configured otherwise):
-
+9. **Optional — TPM2 auto-unlock** (GRUB still prompts unless configured otherwise). Use the **LUKS partition** from step 1 (e.g. `/dev/nvme0n1p3`)
    ```bash
    systemd-cryptenroll --tpm2-device=list
-   systemd-cryptenroll --tpm2-device=auto "$LUKS_DEVICE"
-   systemd-cryptenroll "$LUKS_DEVICE"
+   systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p3
+   systemd-cryptenroll /dev/nvme0n1p3
    dracut -vf
    ```
 
@@ -765,7 +803,7 @@ Re-apply [Finnish keyboard](#finnish-keyboard) if you rebooted the live session 
     test -f /boot/grub2/grub.cfg && test -n "$(ls /boot/vmlinuz-* 2>/dev/null)" || echo "MISSING KERNEL"
     head -n 1 /boot/efi/EFI/fedora/grub.cfg | grep -q '^cryptomount -u ' || echo "MISSING cryptomount"
     grep -qE 'prefix=\(\$dev\)/[^/]+/boot/grub2' /boot/efi/EFI/fedora/grub.cfg || echo "WRONG prefix — need (\$dev)/<subvol>/boot/grub2"
-    cryptsetup luksDump "$LUKS_DEVICE" | grep -q pbkdf2 || echo "MISSING PBKDF2 slot for GRUB"
+    cryptsetup luksDump /dev/nvme0n1p3 | grep -q pbkdf2 || echo "MISSING PBKDF2 slot for GRUB"
     ```
 
 11. Exit chroot and reboot:
@@ -785,7 +823,7 @@ sudo mount -o subvol=root /dev/mapper/luks_root /mnt
 sudo mount /dev/nvme0n1p1 /mnt/boot/efi
 ```
 
-If `findmnt /` or `grub2-probe --target=device /` fails after chroot, add bind mounts **only then** ([recovery chroot](#recovery-chroot-bind-mounts)). Otherwise:
+If `grub2-probe --target=device /` fails after chroot, add bind mounts **only then** ([recovery chroot](#recovery-chroot-bind-mounts)). Otherwise:
 
 ```bash
 sudo chroot /mnt /bin/bash --login
@@ -918,7 +956,7 @@ head -n 1 /boot/efi/EFI/fedora/grub.cfg
 sudo lsinitrd /boot/initramfs-$(uname -r).img | grep -i luks
 ```
 
-LUKS prompt may use **US keyboard layout** — see [First boot — LUKS passphrase](#luks-passphrase).
+LUKS prompt keyboard — see [GRUB passphrase and keyboard layout](#grub-passphrase-and-keyboard-layout) and [First boot — LUKS passphrase](#luks-passphrase).
 
 ## First boot — Plasma Setup
 
@@ -936,7 +974,12 @@ Root has no password by default; use `sudo` for admin tasks.
 
 ### LUKS passphrase
 
-Decrypt prompt at early boot may use **US keyboard layout**. Enter passphrase as typed during install.
+The **GRUB** decrypt prompt (before the kernel menu) uses **US layout** unless you added a custom keymap on the ESP — see [GRUB passphrase and keyboard layout](#grub-passphrase-and-keyboard-layout).
+
+- **Default (US at GRUB):** enter passphrase as **US physical keys** — capitals via Shift work; symbols need US key positions
+- **Custom non-US keymap at GRUB:** unreliable — use **lowercase `a-z` and `0-9` only** if you must
+
+Initramfs prompts (if any) follow `/etc/vconsole.conf` after login setup.
 
 Verify Finnish layout after login:
 

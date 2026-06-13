@@ -79,6 +79,18 @@ Add to the end of the file:
 your_username ALL=(ALL:ALL) NOPASSWD: ALL
 ```
 
+Or uncomment line for wheel group that has NOPASSWD:
+
+```
+%wheel ALL=(ALL) NOPASSWD: ALL
+```
+
+And add your user to wheel group:
+
+```bash
+sudo usermod -a -G wheel your_username
+```
+
 ## Usage
 
 1. Clone this repo and enter the directory.

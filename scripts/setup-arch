@@ -232,6 +232,8 @@ _setup_btrfs_snapper() {
 main() {
     _info "Setting up environment for an arch based distribution."
 
+    _setup_wheel_nopasswd_sudo "$USERNAME"
+
     _info "Converting linux-setup repository to SSH..."
     if [ -d "${REPO_ROOT}/.git" ]; then
         _set_ssh_remote "${REPO_ROOT}"

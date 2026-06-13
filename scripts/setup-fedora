@@ -376,6 +376,9 @@ _setup_grub_cryptomount_fix() {
 main() {
     _info "Setting up environment for a Fedora-based distribution."
 
+    _setup_hostname
+    _setup_wheel_nopasswd_sudo "$USERNAME"
+
     _info "Converting linux-setup repository to SSH..."
     if [ -d "${REPO_ROOT}/.git" ]; then
         _set_ssh_remote "${REPO_ROOT}"
