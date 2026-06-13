@@ -437,6 +437,13 @@ _cursor_installed() {
 
 _install_cursor_fedora() {
     local repo_file=/etc/yum.repos.d/cursor.repo
+    local key_url=https://downloads.cursor.com/keys/anysphere.asc
+
+    # Import key before first metadata fetch — avoids repomd.xml GPG error on fresh repo
+    if ! rpm -q gpg-pubkey-62e492d6-62e492d6 &>/dev/null; then
+        _info "Importing Cursor GPG key..."
+        _echo_run sudo rpm --import "$key_url"
+    fi
 
     if [ ! -f "$repo_file" ]; then
         _info "Adding Cursor DNF repository..."
@@ -446,7 +453,7 @@ _install_cursor_fedora() {
             'baseurl=https://downloads.cursor.com/yumrepo' \
             'enabled=1' \
             'gpgcheck=1' \
-            'gpgkey=https://downloads.cursor.com/keys/anysphere.asc' \
+            "gpgkey=${key_url}" \
             'repo_gpgcheck=1' \
             | _echo_run sudo tee "$repo_file" > /dev/null
     fi
@@ -457,7 +464,13 @@ _install_cursor_fedora() {
     fi
 
     _info "Installing Cursor from official repository..."
-    _echo_run sudo dnf install -y cursor
+    if ! _echo_run sudo dnf install -y cursor; then
+        if rpm -q cursor &>/dev/null; then
+            _warn "dnf exited non-zero but cursor is installed (likely first-run GPG prompt)"
+            return 0
+        fi
+        return 1
+    fi
 }
 
 _install_cursor_debian() {

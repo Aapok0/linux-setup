@@ -279,8 +279,15 @@ _setup_snapper_configs() {
         _info "Snapper home config already present (/home/.snapshots)"
     fi
 
-    _echo_run sudo restorecon -RFv /.snapshots 2>/dev/null || true
-    [ -d /home/.snapshots ] && _echo_run sudo restorecon -RFv /home/.snapshots 2>/dev/null || true
+    _info "Relabeling snapper paths for SELinux (may take a while on large snapshot trees)..."
+    if ! sudo restorecon -RFv /.snapshots 2>/dev/null; then
+        _warn "restorecon /.snapshots exited non-zero (often harmless with nested snapshot paths)"
+    fi
+    if [ -d /home/.snapshots ]; then
+        if ! sudo restorecon -RFv /home/.snapshots 2>/dev/null; then
+            _warn "restorecon /home/.snapshots exited non-zero"
+        fi
+    fi
 
     _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
     if _is_btrfs /home && [ -f /etc/snapper/configs/home ]; then
@@ -344,7 +351,10 @@ _setup_btrfs_snapper() {
     _install_pkg "make"
 
     _setup_btrfs_mount_opts
-    _setup_snapper_configs || _setup_record_error
+    _setup_snapper_configs || {
+        _error "Snapper configuration failed"
+        _setup_record_error
+    }
     _setup_snapper_updatedb
 
     if [ "${SETUP_GRUB_BTRFS:-true}" = true ]; then
@@ -540,7 +550,7 @@ main() {
     _info "Installing nvm for Node version management..."
     if ! command -v nvm &> /dev/null; then
         _info "Downloading and installing nvm..."
-        _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+        _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
         _info "nvm installed"
         _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
         _out '  export NVM_DIR="$HOME/.nvm"'
