@@ -389,3 +389,24 @@ _setup_wheel_nopasswd_sudo() {
 
     _ensure_user_in_group "$user" wheel
 }
+
+_ensure_ssh_ed25519_key() {
+    local key="${HOME}/.ssh/id_ed25519"
+
+    if [ -f "$key" ]; then
+        _info "SSH key already exists: ${key}"
+        return 0
+    fi
+
+    command -v ssh-keygen &>/dev/null || {
+        _warn "ssh-keygen not found; skipping SSH key generation"
+        return 0
+    }
+
+    _info "Generating ed25519 SSH key (no passphrase) at ${key}..."
+    _echo_run mkdir -p "${HOME}/.ssh"
+    _echo_run chmod 700 "${HOME}/.ssh"
+    _echo_run ssh-keygen -t ed25519 -f "$key" -N "" -q
+    _echo_run chmod 600 "$key"
+    [ -f "${key}.pub" ] && _echo_run chmod 644 "${key}.pub"
+}

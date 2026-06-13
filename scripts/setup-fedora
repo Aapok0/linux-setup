@@ -378,6 +378,7 @@ main() {
 
     _setup_hostname
     _setup_wheel_nopasswd_sudo "$USERNAME"
+    _ensure_ssh_ed25519_key
 
     _info "Converting linux-setup repository to SSH..."
     if [ -d "${REPO_ROOT}/.git" ]; then
