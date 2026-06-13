@@ -230,6 +230,7 @@ _setup_btrfs_snapper() {
 }
 
 main() {
+    SETUP_ERRORS=0
     _info "Setting up environment for an arch based distribution."
 
     _setup_wheel_nopasswd_sudo "$USERNAME"
@@ -316,7 +317,7 @@ main() {
         _warn "steamtinkerlaunch not installed; skipping compat add"
     fi
 
-    _info "Setup completed. Log saved to: ${LOGFILE}"
+    _setup_finalize
 }
 
-main "$@" || return 1
+main "$@"

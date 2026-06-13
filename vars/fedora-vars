@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-# NOTE: The following packages are handled by justfile recipes (justfile install) in the dotfiles repository:
+# NOTE: The following packages are handled by justfile recipes (just install) in the dotfiles repository:
 # Core tools: git, curl, stow, vim, neovim, tmux, zsh, fzf, fd, ripgrep, xclip, wl-clipboard
 # Development: nodejs, npm, python, build tools, cmake
 # CLI tools: eza, bat, git-delta, zoxide, starship, btop, entr, jq, thefuck, tldr
 # Utilities: ffmpeg, p7zip, poppler, imagemagick
-# DevOps: terraform, ansible, kubectl, helm
+# DevOps: tfswitch (terraform versions), ansible-core, kubectl, helm
 # Shell: zsh-plugins, atuin history import, shell switching
 # Applications: lazygit, yazi, atuin
 # Font: JetBrainsMono Nerd Font (downloaded from nerd-fonts releases)
@@ -39,14 +39,13 @@ dnf_packages=(
     "gawk"
     "grep"
     "rsync"
-    "inetutils"
     "nmap-ncat"
     "bind-utils"
     "openssh-clients"
     "unzip"
     "unrar"
     "python3-tkinter"
-    "nodejs-pnpm"
+    "pnpm"
     "fastfetch"
     "exfatprogs"
     "fuse-exfat"
@@ -62,14 +61,12 @@ pip_packages=(
 )
 
 dnf_apps=(
-    "kitty"
     "firefox"
     "thunderbird"
     "mpv"
     "vlc"
     "qalculate-gtk"
     "qbittorrent"
-    "onlyoffice-desktopeditors"
 )
 
 dnf_gaming=(
@@ -110,6 +107,7 @@ rpmfusion_nonfree_packages=(
 )
 
 flatpak_apps=(
+    "org.onlyoffice.desktopeditors"
     "com.spotify.Client"
     "com.bitwarden.desktop"
     "org.signal.Signal"

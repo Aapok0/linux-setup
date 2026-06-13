@@ -44,7 +44,35 @@ _install_packages() {
     done
 }
 
-main() {
+_install_ghostty() {
+    command -v ghostty &>/dev/null && {
+        _info "ghostty already installed"
+        return 0
+    }
+
+    local codename
+    codename="$(lsb_release -sc 2>/dev/null || true)"
+    [ -n "$codename" ] || {
+        _warn "Could not detect Debian codename; skipping ghostty install"
+        return 0
+    }
+
+    local list="/etc/apt/sources.list.d/debian.griffo.io.list"
+    local keyring="/usr/share/keyrings/debian.griffo.io.gpg"
+    if [ ! -f "$list" ]; then
+        _info "Adding debian.griffo.io repository for ghostty (not in official Debian repos)..."
+        _echo_run sudo mkdir -p /usr/share/keyrings
+        _echo_run curl -fsSL https://debian.griffo.io/EA0F721D231FDD3A0A17B9AC7808B4DD62C41256.asc \
+            | sudo gpg --dearmor -o "$keyring"
+        printf '%s\n' \
+            "deb [signed-by=${keyring}] https://debian.griffo.io/apt ${codename} main" \
+            | _echo_run sudo tee "$list" > /dev/null
+        _echo_run sudo nala update
+    fi
+    _echo_run sudo nala install -y ghostty
+}
+
+    SETUP_ERRORS=0
     _info "Setting up environment for a Debian-based distribution."
 
     _setup_wheel_nopasswd_sudo "$USERNAME"
@@ -100,6 +128,7 @@ main() {
     _info "Installing KDE and additional apps..."
     _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
     _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
+    _install_ghostty
     _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
 
     if command -v steamtinkerlaunch &>/dev/null; then
@@ -126,17 +155,6 @@ main() {
         _out '  eval "$(pyenv init -)"'
     else
         _info "Pyenv already installed"
-    fi
-
-    _info "Installing tfswitch for Terraform version management..."
-    if ! command -v tfswitch &> /dev/null; then
-        _info "Downloading tfswitch..."
-        _echo_run mkdir -p "$HOME/.local/bin"
-        _echo_run curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/master/install.sh | bash -s -- -b "$HOME/.local/bin"
-        _info "tfswitch installed to ~/.local/bin/tfswitch"
-        _info "Make sure ~/.local/bin is in your PATH"
-    else
-        _info "tfswitch already installed"
     fi
 
     _info "Installing nvm for Node version management..."
@@ -177,7 +195,7 @@ main() {
         _info "NordVPN already installed"
     fi
 
-    _info "Setup completed. Log saved to: ${LOGFILE}"
+    _setup_finalize
 }
 
-main "$@" || return 1
+main "$@"

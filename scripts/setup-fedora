@@ -39,6 +39,14 @@ _install_pkg() {
     _echo_run _dnf install -y "$1"
 }
 
+_should_skip_fedora_pkg() {
+    case "$1" in
+        power-profiles-daemon)
+            rpm -q tuned-ppd &>/dev/null || rpm -q power-profiles-daemon &>/dev/null
+            ;;
+    esac
+}
+
 _install_packages() {
     local category="$1"
     shift
@@ -47,6 +55,10 @@ _install_packages() {
     for pkg in "${packages[@]}"; do
         [ -z "$pkg" ] && continue
         [[ "$pkg" == \#* ]] && continue
+        if _should_skip_fedora_pkg "$pkg"; then
+            _info "Skipping $pkg (already provided by tuned-ppd or installed)"
+            continue
+        fi
         _pkg_is_installed "$pkg" && {
             _info "Package $pkg already installed"
             continue
@@ -68,17 +80,48 @@ _install_flatpak_apps() {
     }
 
     _info "Installing $category..."
-    _echo_run flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    if flatpak remote-list --system 2>/dev/null | grep -qx 'flathub'; then
+        _info "Flathub system remote already configured"
+    else
+        _echo_run sudo flatpak remote-add --if-not-exists --system flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+    fi
     for app in "${apps[@]}"; do
         [ -z "$app" ] && continue
         [[ "$app" == \#* ]] && continue
-        flatpak list --app | grep -q "$app" && {
+        flatpak list --app --system 2>/dev/null | grep -q "$app" && {
             _info "Flatpak $app already installed"
             continue
         }
         _out "Installing flatpak $app"
-        _echo_run flatpak install -y flathub "$app"
+        _echo_run sudo flatpak install -y --system flathub "$app"
     done
+}
+
+_install_ghostty() {
+    command -v ghostty &>/dev/null && {
+        _info "ghostty already installed"
+        return 0
+    }
+
+    _info "Installing ghostty (Fedora COPR — not in official repos)..."
+    if ! dnf copr list --enabled 2>/dev/null | grep -q 'scottames/ghostty'; then
+        _echo_run sudo dnf copr enable scottames/ghostty -y
+    fi
+    _echo_run _dnf install -y ghostty
+}
+
+_setup_firefox_wayland() {
+    local conf="/etc/environment.d/99-firefox-wayland.conf"
+    if [ -f "$conf" ] && grep -q '^MOZ_ENABLE_WAYLAND=1$' "$conf" 2>/dev/null; then
+        _info "Firefox Wayland already enabled ($conf)"
+        return 0
+    fi
+
+    _info "Enabling Firefox native Wayland (MOZ_ENABLE_WAYLAND=1)..."
+    _echo_run sudo mkdir -p /etc/environment.d
+    printf '%s\n' 'MOZ_ENABLE_WAYLAND=1' | _echo_run sudo tee "$conf" > /dev/null
+    _info "Log out and back in (or reboot) for Firefox to pick up the change"
 }
 
 _enable_rpmfusion() {
@@ -201,10 +244,12 @@ _setup_snapper_configs() {
 
     [ -d "$snapper_dir" ] || {
         _error "Missing ${snapper_dir} — clone linux-setup repo with config/fedora/snapper/"
+        _setup_record_error
         return 1
     }
     [ -f "${snapper_dir}/snapper.actions" ] || {
         _error "Missing ${snapper_dir}/snapper.actions"
+        _setup_record_error
         return 1
     }
 
@@ -296,7 +341,7 @@ _setup_btrfs_snapper() {
     _install_pkg "make"
 
     _setup_btrfs_mount_opts
-    _setup_snapper_configs || return 1
+    _setup_snapper_configs || _setup_record_error
     _setup_snapper_updatedb
 
     if [ "${SETUP_GRUB_BTRFS:-true}" = true ]; then
@@ -321,13 +366,18 @@ _root_is_encrypted() {
 }
 
 _boot_on_encrypted_root() {
-    if ! findmnt /boot &>/dev/null; then
-        return 0
+    [ -f /boot/grub2/grub.cfg ] || return 1
+
+    if findmnt -n /boot &>/dev/null; then
+        local root_src boot_src
+        root_src=$(findmnt -n -o SOURCE / | sed 's/\[.*//')
+        boot_src=$(findmnt -n -o SOURCE /boot | sed 's/\[.*//')
+        [ "$root_src" = "$boot_src" ]
+        return $?
     fi
-    local root_src boot_src
-    root_src=$(findmnt -n -o SOURCE /)
-    boot_src=$(findmnt -n -o SOURCE /boot)
-    [ "$root_src" = "$boot_src" ]
+
+    # No separate /boot mount — /boot/grub2 on encrypted root (Option A)
+    return 0
 }
 
 _needs_grub_cryptomount_fix() {
@@ -374,6 +424,7 @@ _setup_grub_cryptomount_fix() {
 }
 
 main() {
+    SETUP_ERRORS=0
     _info "Setting up environment for a Fedora-based distribution."
 
     _setup_hostname
@@ -434,6 +485,8 @@ main() {
     _install_packages "dnf kde" "${dnf_kde[@]}"
     _info "Installing dnf apps..."
     _install_packages "dnf apps" "${dnf_apps[@]}"
+    _setup_firefox_wayland
+    _install_ghostty
     _info "Installing dnf gaming packages..."
     _install_packages "dnf gaming" "${dnf_gaming[@]}"
     _info "Installing RPM Fusion free packages..."
@@ -476,17 +529,6 @@ main() {
         _info "Pyenv already installed"
     fi
 
-    _info "Installing tfswitch for Terraform version management..."
-    if ! command -v tfswitch &> /dev/null; then
-        _info "Downloading tfswitch..."
-        _echo_run mkdir -p "$HOME/.local/bin"
-        _echo_run curl -L https://raw.githubusercontent.com/warrensbox/terraform-switcher/master/install.sh | bash -s -- -b "$HOME/.local/bin"
-        _info "tfswitch installed to ~/.local/bin/tfswitch"
-        _info "Make sure ~/.local/bin is in your PATH"
-    else
-        _info "tfswitch already installed"
-    fi
-
     _info "Installing nvm for Node version management..."
     if ! command -v nvm &> /dev/null; then
         _info "Downloading and installing nvm..."
@@ -505,7 +547,7 @@ main() {
 
     _setup_nordvpn
 
-    _info "Setup completed. Log saved to: ${LOGFILE}"
+    _setup_finalize
 }
 
-main "$@" || return 1
+main "$@"

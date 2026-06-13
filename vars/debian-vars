@@ -54,7 +54,6 @@ basic_packages_pip=(
 )
 
 apps=(
-    "kitty"
     "firefox-esr"
     "discord"
     "thunderbird"

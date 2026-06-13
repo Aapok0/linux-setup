@@ -1105,7 +1105,7 @@ _install_desktop_packages() {
 
     _chroot_run pacman -S --noconfirm \
         xorg plasma-desktop plasma-nm plasma-pa bluedevil \
-        kscreen kcron ibus sddm kitty || return 1
+        kscreen kcron ibus sddm ghostty || return 1
 
     _chroot_run systemctl enable sddm || return 1
 

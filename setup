@@ -55,15 +55,16 @@ main() {
 
     _info "Running setup for ${distro}..."
     LOGFILE="${LOGFILE}" LINUX_SETUP_LOGGING=1 "${REPO_ROOT}/scripts/setup-${distro}" "$username"
+    rc=$?
 
-    if [ $? -eq 0 ]; then
+    if [ "$rc" -eq 0 ]; then
         _info "Setup completed. Log saved to: ${LOGFILE}"
         _print_post_setup_tasks
         exit 0
-    else
-        _error "Setup interrupted by unexpected error"
-        exit 1
     fi
+
+    _error "Setup finished with errors. See ${LOGFILE}"
+    exit 1
 }
 
 main "$@"

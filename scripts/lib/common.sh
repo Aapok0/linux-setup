@@ -59,12 +59,28 @@ _log_cmd_output() {
     return "$rc"
 }
 
+SETUP_ERRORS=0
+
+_setup_record_error() {
+    SETUP_ERRORS=$((SETUP_ERRORS + 1))
+}
+
 _echo_run() {
     _log "RUN" "$*"
-    "$@" || {
-        _error "Command failed (exit $?): $*"
+    if "$@"; then
+        return 0
+    fi
+    _error "Command failed (exit $?): $*"
+    _setup_record_error
+    return 1
+}
+
+_setup_finalize() {
+    if [ "${SETUP_ERRORS:-0}" -gt 0 ]; then
+        _error "Setup finished with ${SETUP_ERRORS} error(s). See ${LOGFILE}"
         return 1
-    }
+    fi
+    return 0
 }
 
 _log_interactive() {
