@@ -524,3 +524,19 @@ _install_cursor() {
     _warn "Cursor install not configured for this distribution"
     return 0
 }
+
+_install_ghostty_desktop_override() {
+    [ "$(uname -s)" = "Linux" ] || return 0
+    command -v ghostty &>/dev/null || return 0
+    [ -d "$HOME/Workspace/dotfiles" ] || {
+        _warn "dotfiles not found; skip Ghostty desktop override (run: cd ~/Workspace/dotfiles && just ghostty-desktop)"
+        return 0
+    }
+
+    _info "Installing Ghostty desktop override (GTK dead keys / Finnish ~)..."
+    _echo_run bash -c 'cd "$HOME/Workspace/dotfiles" && just ghostty-desktop'
+    if command -v ibus-daemon &>/dev/null; then
+        _echo_run systemctl --user enable --now org.freedesktop.IBus.session.generic.service 2>/dev/null \
+            || _warn "Could not enable IBus user service; run: ibus-daemon -drx"
+    fi
+}

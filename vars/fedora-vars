@@ -60,6 +60,21 @@ pip_packages=(
     "azure-cli"
 )
 
+# Required to compile CPython via pyenv (see https://github.com/pyenv/pyenv/wiki#fedora)
+pyenv_build_packages=(
+    "patch"
+    "gcc"
+    "make"
+    "zlib-devel"
+    "bzip2-devel"
+    "readline-devel"
+    "sqlite-devel"
+    "openssl-devel"
+    "tk-devel"
+    "libffi-devel"
+    "xz-devel"
+)
+
 dnf_apps=(
     "firefox"
     "thunderbird"

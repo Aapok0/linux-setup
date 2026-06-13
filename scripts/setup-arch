@@ -194,7 +194,7 @@ EOF
         _echo_run sudo systemctl enable --now grub-btrfsd.service
     fi
 
-    if [ -f /boot/grub/grub.cfg ]; then
+    if sudo test -f /boot/grub/grub.cfg; then
         _echo_run sudo grub-mkconfig -o /boot/grub/grub.cfg
     fi
 }
@@ -316,6 +316,8 @@ main() {
     else
         _warn "steamtinkerlaunch not installed; skipping compat add"
     fi
+
+    _install_ghostty_desktop_override
 
     _setup_finalize
 }

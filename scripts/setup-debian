@@ -72,6 +72,7 @@ _install_ghostty() {
     _echo_run sudo nala install -y ghostty
 }
 
+main() {
     SETUP_ERRORS=0
     _info "Setting up environment for a Debian-based distribution."
 
@@ -129,6 +130,7 @@ _install_ghostty() {
     _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
     _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
     _install_ghostty
+    _install_ghostty_desktop_override
     _install_cursor
     _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
 
@@ -159,7 +161,9 @@ _install_ghostty() {
     fi
 
     _info "Installing nvm for Node version management..."
-    if ! command -v nvm &> /dev/null; then
+    if [ -s "$HOME/.nvm/nvm.sh" ]; then
+        _info "nvm already installed at ~/.nvm"
+    else
         _info "Downloading and installing nvm..."
         _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
         _info "nvm installed"
@@ -167,8 +171,6 @@ _install_ghostty() {
         _out '  export NVM_DIR="$HOME/.nvm"'
         _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
         _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
-    else
-        _info "nvm already installed"
     fi
 
     _info "Doing initial setup for systemd-resolved (for DNS)..."

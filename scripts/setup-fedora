@@ -373,14 +373,12 @@ _setup_btrfs_snapper() {
 
 _root_is_encrypted() {
     local root_src
-    root_src=$(findmnt -n -o SOURCE / 2>/dev/null) || return 1
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null | sed 's/\[.*//') || return 1
     [[ "$root_src" == /dev/mapper/* ]] && return 0
     cryptsetup status "$root_src" &>/dev/null
 }
 
 _boot_on_encrypted_root() {
-    [ -f /boot/grub2/grub.cfg ] || return 1
-
     if findmnt -n /boot &>/dev/null; then
         local root_src boot_src
         root_src=$(findmnt -n -o SOURCE / | sed 's/\[.*//')
@@ -395,8 +393,7 @@ _boot_on_encrypted_root() {
 
 _needs_grub_cryptomount_fix() {
     _root_is_encrypted || return 1
-    _boot_on_encrypted_root || return 1
-    [ -f /boot/efi/EFI/fedora/grub.cfg ] || return 1
+    _boot_on_encrypted_root
 }
 
 _setup_grub_cryptomount_fix() {
@@ -500,6 +497,7 @@ main() {
     _install_packages "dnf apps" "${dnf_apps[@]}"
     _setup_firefox_wayland
     _install_ghostty
+    _install_ghostty_desktop_override
     _install_cursor
     _info "Installing dnf gaming packages..."
     _install_packages "dnf gaming" "${dnf_gaming[@]}"
@@ -531,6 +529,9 @@ main() {
         _echo_run pipx install "$tool"
     done
 
+    _info "Installing pyenv build dependencies..."
+    _install_packages "pyenv build deps" "${pyenv_build_packages[@]}"
+
     _info "Installing pyenv for Python version management..."
     if [ -d "$HOME/.pyenv/.git" ]; then
         _info "Pyenv already installed at ~/.pyenv"
@@ -548,7 +549,9 @@ main() {
     fi
 
     _info "Installing nvm for Node version management..."
-    if ! command -v nvm &> /dev/null; then
+    if [ -s "$HOME/.nvm/nvm.sh" ]; then
+        _info "nvm already installed at ~/.nvm"
+    else
         _info "Downloading and installing nvm..."
         _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
         _info "nvm installed"
@@ -556,8 +559,6 @@ main() {
         _out '  export NVM_DIR="$HOME/.nvm"'
         _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
         _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
-    else
-        _info "nvm already installed"
     fi
 
     _info "Doing initial setup for systemd-resolved (for DNS)..."
