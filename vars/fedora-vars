@@ -111,7 +111,7 @@ flatpak_apps=(
     "com.spotify.Client"
     "com.bitwarden.desktop"
     "org.signal.Signal"
-    "net.batchichi.ProtonUp-Qt"
+    "net.davidotek.pupgui2"
     "org.openrgb.OpenRGB"
     # "io.github.steamtinkerlaunch.steamtinkerlaunch"
 )

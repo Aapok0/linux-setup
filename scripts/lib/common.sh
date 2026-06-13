@@ -67,10 +67,12 @@ _setup_record_error() {
 
 _echo_run() {
     _log "RUN" "$*"
-    if "$@"; then
+    local rc=0
+    "$@" || rc=$?
+    if [ "$rc" -eq 0 ]; then
         return 0
     fi
-    _error "Command failed (exit $?): $*"
+    _error "Command failed (exit ${rc}): $*"
     _setup_record_error
     return 1
 }

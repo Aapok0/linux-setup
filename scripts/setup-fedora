@@ -44,6 +44,9 @@ _should_skip_fedora_pkg() {
         power-profiles-daemon)
             rpm -q tuned-ppd &>/dev/null || rpm -q power-profiles-daemon &>/dev/null
             ;;
+        *)
+            return 1
+            ;;
     esac
 }
 
@@ -56,7 +59,7 @@ _install_packages() {
         [ -z "$pkg" ] && continue
         [[ "$pkg" == \#* ]] && continue
         if _should_skip_fedora_pkg "$pkg"; then
-            _info "Skipping $pkg (already provided by tuned-ppd or installed)"
+            _info "Skipping $pkg (tuned-ppd provides power profiles)"
             continue
         fi
         _pkg_is_installed "$pkg" && {
@@ -514,19 +517,19 @@ main() {
     done
 
     _info "Installing pyenv for Python version management..."
-    if ! command -v pyenv &> /dev/null; then
+    if [ -d "$HOME/.pyenv/.git" ]; then
+        _info "Pyenv already installed at ~/.pyenv"
+    else
         _info "Cloning pyenv..."
         _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
         _info "Building pyenv..."
-        _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
+        _echo_run bash -c 'cd "$HOME/.pyenv" && src/configure && make -C src'
         _info "Pyenv installed to ~/.pyenv"
         _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
         _out '  export PYENV_ROOT="$HOME/.pyenv"'
         _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
         _out '  eval "$(pyenv init --path)"'
         _out '  eval "$(pyenv init -)"'
-    else
-        _info "Pyenv already installed"
     fi
 
     _info "Installing nvm for Node version management..."
