@@ -236,7 +236,7 @@ _get_total_ram() {
     local ram_kb
     ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     # Convert KB to GB - round to nearest GB
-    echo $(( (ram_kb + 524287) / 1048576 ))
+    echo $(( (ram_kb + 1048575) / 1048576 ))
 }
 
 _prompt_swap_type() {
