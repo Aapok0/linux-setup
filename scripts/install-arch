@@ -361,7 +361,7 @@ _print_configuration_summary() {
     local root_display
     local home_display
 
-    # Display root and home partition size even, when all is selected 
+    # Display root and home partition size even, when all is selected
     if [ "$ROOT_SIZE_UNIT" = "all" ]; then
         local available_root=$(_calculate_available_space "$ROOT_DEVICE" "ROOT")
         root_display="${available_root}GB (all available)"

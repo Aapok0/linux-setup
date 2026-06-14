@@ -404,7 +404,7 @@ blkid /dev/<home_partition>
 nvim /etc/crypttab
 
 # Add this line
-luks_home	UUID=<home_partition_uuid>	/etc/luks_keys/home_keyfile.bin		luks,initramfs
+luks_home   UUID=<home_partition_uuid>  /etc/luks_keys/home_keyfile.bin     luks,initramfs
 ```
 
 ### Add localization

@@ -172,7 +172,7 @@ cryptsetup luksAddKey /dev/<home_partition> /etc/luks_keys/home_keyfile.bin
 nvim /etc/mkinitcpio.conf
 FILES(/etc/luks_keys/root_keyfile.bin)
 nvim /etc/crypttab
-luks_home	UUID=<home_partition_uuid>	/etc/luks_keys/home_keyfile.bin		luks,initramfs
+luks_home   UUID=<home_partition_uuid>  /etc/luks_keys/home_keyfile.bin     luks,initramfs
 # Get UUID with
 blkid /dev/<home_partition>
 
@@ -278,7 +278,7 @@ localectl --no-convert set-keymap fi
 localectl --no-convert set-x11-keymap fi pc106 winkeys
 mkinitcpio -p linux
 mkinitcpio -p linux-lts
-	
+    
 After install:
 pacman -Syu
 
