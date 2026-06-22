@@ -1022,16 +1022,49 @@ sudo efibootmgr
 
 Re-enable **BitLocker** in Windows after confirming both OSes boot.
 
-### Hibernate (only if swap partition was configured)
+### Hibernate (disk swap required)
 
-See [Swap (optional)](#swap-optional--all-layouts). If you added a swap partition during install:
+Fedora defaults to **zram** swap — it cannot hibernate. You need **disk swap ≥ RAM** (partition or btrfs swap file).
+
+**Secure Boot blocks hibernation.** With SB enabled, kernel lockdown removes `disk` from `/sys/power/state` and `/sys/power/disk` shows `[disabled]`. LUKS-encrypted swap does **not** help — lockdown blocks hibernate regardless. Fedora has no supported SB-on hibernate path today ([Fedora Discussion](https://discussion.fedoraproject.org/t/enabling-hibernation-on-fedora-43/181392)).
+
+`./setup fedora` **skips all hibernate setup** when Secure Boot is enabled (no btrfs swap file, no dracut `resume`, no `grubby resume=`). Re-run setup after disabling SB in firmware if you change your mind.
+
+| Install-time | Post-install (`./setup fedora`, SB **off**) |
+|---|---|
+| Add **linux-swap** partition ≥ `RAM + √RAM` GiB in the storage editor | If btrfs root and no disk swap: creates `/var/swap/swapfile` (Fedora Magazine method) |
+| — | Enables **dracut `resume`** module |
+| — | **Swap partition:** adds `resume=UUID=…` via `grubby` |
+| — | **Swap file on UEFI:** no `resume=` in GRUB — systemd stores location in EFI ([Fedora Magazine](https://fedoramagazine.org/update-on-hibernation-in-fedora-workstation/)) |
+
+**Also required for hibernation to work:**
+
+- **UEFI** boot (`bootctl` must work)
+- **Secure Boot disabled** in firmware
+- **SELinux:** setup runs `restorecon` on swap paths; if resume fails with AVC denials, see [Cryptophobia gist](https://gist.github.com/Cryptophobia/e304a04fcb156dd0959fbba6b7a26106) (Feb 2026)
+
+Toggle in `scripts/setup-fedora`: `SETUP_FEDORA_HIBERNATE=false` to skip even when SB is off.
+
+#### Dual boot with Windows
+
+| Topic | Recommendation |
+|---|---|
+| **Secure Boot** | Keeping SB **on** is reasonable for Windows (BitLocker, HVCI). Linux hibernate stays unavailable — use **suspend** instead. |
+| **Windows Fast Startup** | **Disable** (Settings → System → Power). Windows pseudo-hibernate can lock the ESP and boot straight to Windows, hiding GRUB. |
+| **BitLocker** | Save recovery key before toggling Secure Boot or changing UEFI keys — firmware changes can trigger recovery. |
+| **Linux hibernate vs Windows** | Unrelated mechanisms. Windows update hibernates are not Linux hibernate; fix boot order via firmware or Windows Recovery → UEFI settings if Windows steals boot. |
+
+**Verify (SB must be off for hibernate):**
 
 ```bash
-swapon --show    # confirm swap ≥ RAM + √RAM
+mokutil --sb-state
+cat /sys/power/disk    # must include 'disk', not [disabled]
+swapon --show          # disk swap ≥ RAM; not zram-only
+sudo grubby --info=ALL | grep resume   # set for swap *partition* only
 sudo systemctl hibernate
 ```
 
-For a btrfs swap file instead, see [Hibernation in Fedora Workstation](https://fedoramagazine.org/update-on-hibernation-in-fedora-workstation/).
+For manual btrfs swap file steps, see [Hibernation in Fedora Workstation](https://fedoramagazine.org/update-on-hibernation-in-fedora-workstation/).
 
 ## Post-install setup
 
@@ -1044,7 +1077,7 @@ chmod u+x setup scripts/*
 ./setup fedora
 ```
 
-`setup-fedora` upgrades the system, enables RPM Fusion, installs packages from `vars/fedora-vars` (KDE, apps, gaming, flatpaks, `fwupd`, `snapper`, …), stows dotfiles, and configures NordVPN.
+`setup-fedora` upgrades the system, enables RPM Fusion, installs packages from `vars/fedora-vars` (KDE, apps, gaming, flatpaks including **VLC**, `fwupd`, `snapper`, **haruna**, …), stows dotfiles via `just install` (which swaps **ffmpeg-free → ffmpeg** for full mpv codecs), configures **hibernation** when Secure Boot is off and disk swap exists (skipped automatically with SB on), and configures NordVPN.
 
 On **btrfs root** it also applies btrfs mount options to `/etc/fstab` and runs Snapper setup (when root is btrfs). Toggle Snapper/grub-btrfs at the top of `scripts/setup-fedora` (`SETUP_BTRFS_SNAPPER`, `SETUP_GRUB_BTRFS`). See [config/fedora/snapper/README.md](../../config/fedora/snapper/README.md) for dnf5 hooks.
 

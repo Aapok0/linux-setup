@@ -21,6 +21,8 @@ BTRFS_MOUNT_OPTS="noatime,ssd,compress=zstd:1,space_cache=v2,discard=async,commi
 SETUP_BTRFS_SNAPPER=true
 SETUP_GRUB_BTRFS=true
 SETUP_GRUB_CRYPTOMOUNT=true
+SETUP_FEDORA_HIBERNATE=true
+FEDORA_HIBERNATE_SWAPFILE="/var/swap/swapfile"
 
 _dnf() {
     sudo dnf "$@"
@@ -433,6 +435,174 @@ _setup_grub_cryptomount_fix() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Hibernate (disk swap or btrfs swap file on UEFI)
+# ---------------------------------------------------------------------------
+
+_ram_kb() {
+    awk '/MemTotal:/ {print $2}' /proc/meminfo
+}
+
+_disk_swap_kb() {
+    local total=0 name type size_b
+    while read -r name type size_b; do
+        [[ "$type" == "zram" ]] && continue
+        total=$((total + size_b))
+    done < <(swapon --show=NAME,TYPE,SIZE --bytes --noheadings 2>/dev/null)
+    echo $((total / 1024))
+}
+
+_primary_disk_swap() {
+    swapon --show=NAME,TYPE --noheadings 2>/dev/null | awk '$2 != "zram" {print $1; exit}'
+}
+
+_primary_disk_swap_type() {
+    swapon --show=NAME,TYPE --noheadings 2>/dev/null | awk '$2 != "zram" {print $2; exit}'
+}
+
+_hibernation_blocked_by_secure_boot() {
+    mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'
+}
+
+_kernel_hibernation_available() {
+    [ -f /sys/power/disk ] && grep -qE '(^| )disk( |$)' /sys/power/disk 2>/dev/null
+}
+
+_ensure_dracut_resume() {
+    local conf="/etc/dracut.conf.d/resume.conf"
+    local changed=false
+
+    if [ ! -f "$conf" ] || ! grep -q 'resume' "$conf" 2>/dev/null; then
+        _info "Enabling dracut resume module..."
+        _echo_run sudo mkdir -p /etc/dracut.conf.d
+        printf '%s\n' 'add_dracutmodules+=" resume "' | _echo_run sudo tee "$conf" > /dev/null
+        changed=true
+    else
+        _info "dracut resume module already configured"
+    fi
+
+    if $changed; then
+        _info "Regenerating initramfs (may take a few minutes)..."
+        _echo_run sudo dracut -f --verbose
+    fi
+}
+
+_kernel_has_resume_for_uuid() {
+    local uuid="$1"
+    grubby --info=ALL 2>/dev/null | grep -q "resume=UUID=${uuid}"
+}
+
+_configure_grub_resume_partition() {
+    local swap_dev="$1"
+    local uuid
+
+    uuid=$(sudo blkid -o value -s UUID "$swap_dev" 2>/dev/null) || return 1
+    [ -n "$uuid" ] || return 1
+
+    if _kernel_has_resume_for_uuid "$uuid"; then
+        _info "Kernel resume=UUID=${uuid} already configured"
+        return 0
+    fi
+
+    _info "Adding resume=UUID=${uuid} to kernel command line..."
+    _echo_run sudo grubby --args="resume=UUID=${uuid}" --update-kernel=ALL
+    _ensure_dracut_resume
+}
+
+_create_btrfs_hibernate_swapfile() {
+    local swapfile="${FEDORA_HIBERNATE_SWAPFILE}"
+    local swapdir swapsize
+
+    swapdir=$(dirname "$swapfile")
+
+    if [ -f "$swapfile" ]; then
+        _info "Hibernate swap file already exists: ${swapfile}"
+        return 0
+    fi
+
+    _is_btrfs / || {
+        _warn "Root is not btrfs; cannot auto-create hibernate swap file"
+        return 1
+    }
+
+    swapsize=$(free | awk '/Mem/ {x=$2/1024/1024; printf "%.0fG", (x<2 ? 2*x : x<8 ? 1.5*x : x) }')
+    _info "Creating btrfs hibernate swap file (${swapsize}) at ${swapfile}..."
+
+    if [ ! -d "$swapdir" ]; then
+        _echo_run sudo btrfs subvolume create "$swapdir"
+    fi
+    _echo_run sudo chattr +C "$swapdir" 2>/dev/null || true
+    _echo_run sudo restorecon -RF "$swapdir" 2>/dev/null || true
+    _echo_run sudo mkswap --file -L SWAPFILE --size "$swapsize" "$swapfile"
+
+    if ! grep -qF "$swapfile" /etc/fstab 2>/dev/null; then
+        _echo_run sudo bash -c "echo '${swapfile} none swap defaults 0 0' >> /etc/fstab"
+    fi
+    _echo_run sudo swapon -a
+    _info "Hibernate swap file created and enabled"
+}
+
+_setup_fedora_hibernation() {
+    [ "${SETUP_FEDORA_HIBERNATE:-true}" = true ] || {
+        _info "SETUP_FEDORA_HIBERNATE=false; skipping hibernate setup"
+        return 0
+    }
+
+    if ! command -v bootctl &>/dev/null || ! bootctl status &>/dev/null 2>&1; then
+        _warn "UEFI (bootctl) not detected — automatic hibernate setup needs UEFI; see instructions/install/fedora.md"
+        return 0
+    fi
+
+    if _hibernation_blocked_by_secure_boot; then
+        _info "Secure Boot enabled — skipping hibernate setup (kernel lockdown blocks hibernate)"
+        _info "  /sys/power/disk: $(cat /sys/power/disk 2>/dev/null || echo unavailable)"
+        _info "  Use suspend on Linux; disable Secure Boot in firmware only if you need hibernate"
+        _info "  Dual boot + Windows: keep SB on; disable Windows Fast Startup (see fedora.md)"
+        return 0
+    fi
+
+    if ! _kernel_hibernation_available; then
+        _warn "Kernel does not expose hibernate (/sys/power/disk has no 'disk') — skipping hibernate setup"
+        _warn "  Check: mokutil --sb-state; journalctl -k -b | grep -i lockdown"
+        return 0
+    fi
+
+    local ram_kb disk_swap_kb swap_dev swap_type
+
+    ram_kb=$(_ram_kb)
+    disk_swap_kb=$(_disk_swap_kb)
+
+    if [ "${disk_swap_kb:-0}" -lt "$ram_kb" ]; then
+        if _is_btrfs / && [ ! -f "${FEDORA_HIBERNATE_SWAPFILE}" ]; then
+            _info "Disk swap (${disk_swap_kb:-0} KiB) smaller than RAM (${ram_kb} KiB); creating btrfs swap file..."
+            _create_btrfs_hibernate_swapfile || {
+                _warn "Could not create hibernate swap file — add swap ≥ RAM during install or manually"
+                return 0
+            }
+            disk_swap_kb=$(_disk_swap_kb)
+        fi
+    fi
+
+    if [ "${disk_swap_kb:-0}" -lt "$ram_kb" ]; then
+        _warn "No disk swap large enough for hibernate (have ${disk_swap_kb:-0} KiB, need ≥ ${ram_kb} KiB RAM)"
+        _warn "zram alone cannot hibernate — add a swap partition or btrfs swap file (see fedora.md)"
+        return 0
+    fi
+
+    _ensure_dracut_resume
+
+    swap_dev=$(_primary_disk_swap)
+    swap_type=$(_primary_disk_swap_type)
+
+    if [ "$swap_type" = "partition" ] && [ -n "$swap_dev" ]; then
+        _configure_grub_resume_partition "$swap_dev"
+    elif [ "$swap_type" = "file" ]; then
+        _info "Swap file on UEFI: systemd stores resume location in EFI (no grub resume= needed per Fedora Magazine)"
+    fi
+
+    _info "Hibernate configured (test after reboot: sudo systemctl hibernate)"
+}
+
 main() {
     SETUP_ERRORS=0
     _info "Setting up environment for a Fedora-based distribution."
@@ -563,6 +733,8 @@ main() {
 
     _info "Doing initial setup for systemd-resolved (for DNS)..."
     _setup_systemd_resolved
+
+    _setup_fedora_hibernation
 
     _setup_nordvpn
 

@@ -79,7 +79,7 @@ dnf_apps=(
     "firefox"
     "thunderbird"
     "mpv"
-    "vlc"
+    "haruna"
     "qalculate-gtk"
     "qbittorrent"
 )
@@ -122,6 +122,7 @@ rpmfusion_nonfree_packages=(
 )
 
 flatpak_apps=(
+    "org.videolan.VLC"
     "org.onlyoffice.desktopeditors"
     "com.spotify.Client"
     "com.bitwarden.desktop"
