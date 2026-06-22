@@ -58,6 +58,7 @@ apps=(
     "discord"
     "thunderbird"
     "mpv"
+    "haruna"
     "vlc"
     "qalculate-gtk"
     "openrgb"
