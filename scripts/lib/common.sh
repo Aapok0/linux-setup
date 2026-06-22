@@ -536,7 +536,8 @@ _install_ghostty_desktop_override() {
     _info "Installing Ghostty desktop override (GTK dead keys / Finnish ~)..."
     _echo_run bash -c 'cd "$HOME/Workspace/dotfiles" && just ghostty-desktop'
     if command -v ibus-daemon &>/dev/null; then
-        _echo_run systemctl --user enable --now org.freedesktop.IBus.session.generic.service 2>/dev/null \
-            || _warn "Could not enable IBus user service; run: ibus-daemon -drx"
+        if ! systemctl --user enable --now org.freedesktop.IBus.session.generic.service &>/dev/null; then
+            _warn "Could not enable IBus user service; run: ibus-daemon -drx"
+        fi
     fi
 }
