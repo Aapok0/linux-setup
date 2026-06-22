@@ -33,11 +33,13 @@ _print_post_setup_tasks() {
     _out "   - pyenv global <version>"
     _out "   - mkdir -p ~/Python && cd ~/Python"
     _out "   - python -m venv <name>"
-    _out "7. Open nvim and install plugins:"
+    _out "7. Open nvim and make sure plugins and Mason tools are installed (automation should have done this):"
     _out "   - nvim"
     _out "   - Let lazy.nvim install plugins"
     _out "   - :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint"
-    _out "8. Open tmux (tmux) and install plugins (ctrl+space I)"
+    _out "8. Open tmux (tmux) and make sure plugins are installed (automation should have done this):"
+    _out "   - tmux"
+    _out "   - ctrl+space I"
 }
 
 main() {
@@ -62,7 +64,6 @@ main() {
         exit 0
     fi
 
-    _error "Setup finished with errors. See ${LOGFILE}"
     exit 1
 }
 
