@@ -229,6 +229,24 @@ _setup_btrfs_snapper() {
     _info "Rollback docs: instructions/install/arch-install.md#rollback-and-restore"
 }
 
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
+_setup_tailscale() {
+    if command -v tailscale &>/dev/null; then
+        _info "Tailscale already installed"
+        _ensure_systemd_enabled_now tailscaled.service
+        return 0
+    fi
+
+    _info "Setting up Tailscale (official extra repository)..."
+    _install_pkg "tailscale" "--skipreview --noconfirm"
+    _ensure_systemd_enabled_now tailscaled.service
+    _info "Tailscale installed and configured"
+    _info "Connect with: sudo tailscale up"
+}
+
 main() {
     SETUP_ERRORS=0
     _info "Setting up environment for an arch based distribution."
@@ -309,6 +327,10 @@ main() {
     _ensure_group nordvpn
     _ensure_user_in_group "$USERNAME" nordvpn
     _ensure_systemd_enabled_now nordvpnd.service
+
+    _setup_tailscale
+
+    _setup_docker "$USERNAME" "${docker_packages[@]}"
 
     if command -v steamtinkerlaunch &>/dev/null; then
         _info "Setting Steam Tinker Launch as a Steam compatibility tool..."

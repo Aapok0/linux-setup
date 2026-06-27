@@ -9,11 +9,9 @@ image editing? -> gimp?
 printer software -> HP?
 mouse -> solaar, piper? logiops?
 keyboard -> via
-docker
 rdp?
 scp/sftp client?
 api calls -> postman?
-docker install and add user to docker group
 
 wikiman
 arch-wiki-docs
@@ -34,6 +32,7 @@ music -> spotify
 office tools? -> onlyoffice
 rgb -> openrgp
 vms -> virtualbox, setup virtmanager later?
+docker -> docker/moby installed, user added to docker group, daemon enabled
 calculator -> kcalc (krunner integration?), qalculator-qt?
 torrents -> qbittorrent
 

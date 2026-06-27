@@ -525,6 +525,19 @@ _install_cursor() {
     return 0
 }
 
+_setup_docker() {
+    local user=$1
+    shift
+    local packages=("$@")
+
+    _info "Setting up Docker..."
+    _install_packages "docker" "${packages[@]}"
+
+    _ensure_group docker
+    _ensure_user_in_group "$user" docker
+    _ensure_systemd_enabled_now docker.service
+}
+
 _install_ghostty_desktop_override() {
     [ "$(uname -s)" = "Linux" ] || return 0
     command -v ghostty &>/dev/null || return 0

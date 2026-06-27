@@ -103,6 +103,10 @@ _install_flatpak_apps() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
 _install_ghostty() {
     command -v ghostty &>/dev/null && {
         _info "ghostty already installed"
@@ -185,6 +189,30 @@ EOF
     _ensure_systemd_enabled_now nordvpnd.service
     _info "NordVPN installed and configured"
     _info "Login with: nordvpn login --token \"<token_from_account_here>\""
+}
+
+_setup_tailscale() {
+    if command -v tailscale &>/dev/null; then
+        _info "Tailscale already installed"
+        _ensure_systemd_enabled_now tailscaled.service
+        return 0
+    fi
+
+    _info "Setting up Tailscale (official repository)..."
+    if [ ! -f /etc/yum.repos.d/tailscale.repo ]; then
+        _echo_run _dnf install -y 'dnf-command(config-manager)'
+        if dnf --version 2>/dev/null | grep -q '^dnf5 version'; then
+            _echo_run _dnf config-manager addrepo --overwrite \
+                --from-repofile="https://pkgs.tailscale.com/stable/fedora/tailscale.repo"
+        else
+            _echo_run _dnf config-manager --add-repo \
+                "https://pkgs.tailscale.com/stable/fedora/tailscale.repo"
+        fi
+    fi
+    _install_pkg "tailscale"
+    _ensure_systemd_enabled_now tailscaled.service
+    _info "Tailscale installed and configured"
+    _info "Connect with: sudo tailscale up"
 }
 
 # ---------------------------------------------------------------------------
@@ -737,6 +765,10 @@ main() {
     _setup_fedora_hibernation
 
     _setup_nordvpn
+
+    _setup_tailscale
+
+    _setup_docker "$USERNAME" "${docker_packages[@]}"
 
     _setup_finalize
 }

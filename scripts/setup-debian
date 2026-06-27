@@ -44,6 +44,10 @@ _install_packages() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
 _install_ghostty() {
     command -v ghostty &>/dev/null && {
         _info "ghostty already installed"
@@ -70,6 +74,37 @@ _install_ghostty() {
         _echo_run sudo nala update
     fi
     _echo_run sudo nala install -y ghostty
+}
+
+_setup_tailscale() {
+    if command -v tailscale &>/dev/null; then
+        _info "Tailscale already installed"
+        _ensure_systemd_enabled_now tailscaled.service
+        return 0
+    fi
+
+    local codename
+    codename="$(lsb_release -sc 2>/dev/null || true)"
+    [ -n "$codename" ] || {
+        _warn "Could not detect Debian codename; skipping Tailscale install"
+        return 0
+    }
+
+    _info "Setting up Tailscale (official repository)..."
+    local keyring="/usr/share/keyrings/tailscale-archive-keyring.gpg"
+    local list="/etc/apt/sources.list.d/tailscale.list"
+    _echo_run sudo mkdir -p --mode=0755 /usr/share/keyrings
+    _echo_run curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.noarmor.gpg" \
+        | sudo tee "$keyring" > /dev/null
+    _echo_run sudo chmod 0644 "$keyring"
+    _echo_run curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.tailscale-keyring.list" \
+        | sudo tee "$list" > /dev/null
+    _echo_run sudo chmod 0644 "$list"
+    _echo_run sudo nala update
+    _install_pkg "tailscale"
+    _ensure_systemd_enabled_now tailscaled.service
+    _info "Tailscale installed and configured"
+    _info "Connect with: sudo tailscale up"
 }
 
 main() {
@@ -197,6 +232,10 @@ main() {
     else
         _info "NordVPN already installed"
     fi
+
+    _setup_tailscale
+
+    _setup_docker "$USERNAME" "${docker_packages[@]}"
 
     _setup_finalize
 }

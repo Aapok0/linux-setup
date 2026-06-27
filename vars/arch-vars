@@ -116,3 +116,9 @@ kde_packages=(
 )
 
 kde_packages_aur=()
+
+docker_packages=(
+    "docker"
+    "docker-buildx"
+    "docker-compose"
+)

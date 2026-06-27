@@ -121,6 +121,12 @@ rpmfusion_nonfree_packages=(
     # "VirtualBox"
 )
 
+docker_packages=(
+    "moby-engine"
+    "docker-compose"
+    "docker-buildx"
+)
+
 flatpak_apps=(
     "org.videolan.VLC"
     "org.onlyoffice.desktopeditors"
