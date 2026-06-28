@@ -154,7 +154,7 @@ _setup_snapper_rollback() {
 
     _info "Installing /etc/snapper-rollback.conf (dev=${root_src:-unset})..."
     tmp=$(mktemp)
-    sed "s|^#dev = .*|dev = ${root_src}|" "$src" > "$tmp"
+    sed "s|^#dev = .*|dev = ${root_src}|" "$src" >"$tmp"
     if [ -z "$root_src" ]; then
         _warn "Could not detect btrfs device for / — edit dev= in /etc/snapper-rollback.conf"
     fi
@@ -262,7 +262,7 @@ main() {
     _ensure_pacman_multilib
     _echo_run sudo pacman -Syy
     _info "Installing paru AUR helper..."
-    if ! command -v paru &> /dev/null; then
+    if ! command -v paru &>/dev/null; then
         _echo_run cd "$HOME"
         _echo_run git clone https://aur.archlinux.org/paru.git
         _echo_run cd paru

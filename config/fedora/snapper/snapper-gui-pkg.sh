@@ -17,10 +17,10 @@ desc=$(cat "$DESC_FILE" 2>/dev/null || echo "")
 [[ -f "$PKG_FILE" ]] && exit 0
 
 case "$ACTION" in
-    I|U|D|R)
-        echo "GUI install ${NAME}" > "$PKG_FILE"
+    I | U | D | R)
+        echo "GUI install ${NAME}" >"$PKG_FILE"
         ;;
-    E|O)
-        echo "GUI remove ${NAME}" > "$PKG_FILE"
+    E | O)
+        echo "GUI remove ${NAME}" >"$PKG_FILE"
         ;;
 esac

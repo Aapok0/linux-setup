@@ -335,7 +335,7 @@ _pacstrap_base_packages() {
 
 _generate_fstab() {
     _info "Generating fstab..."
-    _echo_run genfstab -U "$MNT" >> "${MNT}/etc/fstab" || return 1
+    _echo_run genfstab -U "$MNT" >>"${MNT}/etc/fstab" || return 1
 }
 
 _setup_bootstrap() {
@@ -461,7 +461,7 @@ _configure_encryption_boot() {
 
     printf '%s\t%s\t%s\t%s\n' \
         "luks_home" "UUID=${home_part_uuid}" "/etc/luks_keys/home_keyfile.bin" "luks,initramfs" \
-        >> "${MNT}/etc/crypttab"
+        >>"${MNT}/etc/crypttab"
 
     return 0
 }
@@ -731,7 +731,7 @@ _configure_locales() {
         /etc/locale.gen || return 1
     _chroot_run locale-gen || return 1
 
-    cat > "${MNT}/etc/locale.conf" <<'EOF'
+    cat >"${MNT}/etc/locale.conf" <<'EOF'
 LANG=en_US.UTF-8
 LANGUAGE=en_US.UTF-8
 LC_CTYPE=en_US.UTF-8
@@ -756,7 +756,7 @@ EOF
 _configure_keyboard() {
     _info "Configuring console keyboard (${KEYMAP})..."
 
-    cat > "${MNT}/etc/vconsole.conf" <<EOF
+    cat >"${MNT}/etc/vconsole.conf" <<EOF
 KEYMAP=${KEYMAP}
 XKBLAYOUT=${KEYMAP}
 XKBMODEL=pc106
@@ -838,7 +838,7 @@ _setup_localization_reinstall() {
 
 _configure_hostname() {
     _info "Setting hostname to $INSTALL_HOSTNAME..."
-    printf '%s\n' "$INSTALL_HOSTNAME" > "${MNT}/etc/hostname"
+    printf '%s\n' "$INSTALL_HOSTNAME" >"${MNT}/etc/hostname"
 }
 
 _setup_root_password() {
@@ -852,7 +852,7 @@ _setup_root_password() {
 _enable_wheel_sudo() {
     _info "Granting sudo access to wheel group..."
 
-    printf '%%wheel ALL=(ALL:ALL) ALL\n' > "${MNT}/etc/sudoers.d/wheel"
+    printf '%%wheel ALL=(ALL:ALL) ALL\n' >"${MNT}/etc/sudoers.d/wheel"
     _chroot_run chmod 440 /etc/sudoers.d/wheel || return 1
 }
 
@@ -968,10 +968,10 @@ _detect_cpu_microcode_package() {
     vendor=$(arch-chroot "$MNT" lscpu 2>/dev/null | awk -F: '/Vendor ID/ {gsub(/^[ \t]+/, "", $2); print $2; exit}')
 
     case $vendor in
-        *AuthenticAMD*|*AMD*)
+        *AuthenticAMD* | *AMD*)
             echo "amd-ucode"
             ;;
-        *GenuineIntel*|*Intel*)
+        *GenuineIntel* | *Intel*)
             echo "intel-ucode"
             ;;
         *)
@@ -993,9 +993,18 @@ _prompt_cpu_microcode_package() {
         read -p "Select microcode package [1-3]: " choice
 
         case $choice in
-            1) echo "amd-ucode"; return 0 ;;
-            2) echo "intel-ucode"; return 0 ;;
-            3) echo ""; return 0 ;;
+            1)
+                echo "amd-ucode"
+                return 0
+                ;;
+            2)
+                echo "intel-ucode"
+                return 0
+                ;;
+            3)
+                echo ""
+                return 0
+                ;;
             *) _error "Invalid choice." ;;
         esac
     done
@@ -1034,11 +1043,26 @@ _prompt_gpu_packages() {
         read -p "Select GPU driver set [1-5]: " choice
 
         case $choice in
-            1) echo "mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon vulkan-mesa-implicit-layers lib32-vulkan-mesa-implicit-layers"; return 0 ;;
-            2) echo "mesa lib32-mesa intel-media-driver"; return 0 ;;
-            3) echo "nvidia nvidia-utils nvidia-lts"; return 0 ;;
-            4) echo "xf86-video-vmware"; return 0 ;;
-            5) echo ""; return 0 ;;
+            1)
+                echo "mesa lib32-mesa libva-mesa-driver vulkan-radeon lib32-vulkan-radeon vulkan-mesa-implicit-layers lib32-vulkan-mesa-implicit-layers"
+                return 0
+                ;;
+            2)
+                echo "mesa lib32-mesa intel-media-driver"
+                return 0
+                ;;
+            3)
+                echo "nvidia nvidia-utils nvidia-lts"
+                return 0
+                ;;
+            4)
+                echo "xf86-video-vmware"
+                return 0
+                ;;
+            5)
+                echo ""
+                return 0
+                ;;
             *) _error "Invalid choice." ;;
         esac
     done
@@ -1052,7 +1076,7 @@ _configure_reflector() {
         return 0
     fi
 
-    cat > "${MNT}/etc/xdg/reflector/reflector.conf" <<EOF
+    cat >"${MNT}/etc/xdg/reflector/reflector.conf" <<EOF
 --save /etc/pacman.d/mirrorlist
 --protocol https
 --country ${REFLECTOR_COUNTRIES}

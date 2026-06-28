@@ -53,7 +53,7 @@ _log_cmd_output() {
     if [ -n "$output" ]; then
         while IFS= read -r line; do
             _log "OUT" "$line"
-        done <<< "$output"
+        done <<<"$output"
     fi
 
     return "$rc"
@@ -167,11 +167,11 @@ _prompt_yes_no() {
         read -r -p "$prompt_msg" response
 
         case $response in
-            [Yy]|[Yy][Ee][Ss])
+            [Yy] | [Yy][Ee][Ss])
                 _out "${prompt_msg} yes"
                 return 0
                 ;;
-            [Nn]|[Nn][Oo])
+            [Nn] | [Nn][Oo])
                 _out "${prompt_msg} no"
                 return 1
                 ;;
@@ -201,11 +201,11 @@ _set_ssh_remote() {
     if [ "$https_url" != "$ssh_url" ]; then
         _echo_run git remote set-url origin "$ssh_url"
     fi
-    cd - > /dev/null || return 1
+    cd - >/dev/null || return 1
 }
 
 _check_firewall_service() {
-    command -v "$2" &> /dev/null && systemctl is-active --quiet "$1" && {
+    command -v "$2" &>/dev/null && systemctl is-active --quiet "$1" && {
         SETUP_UFW=false
         _info "Service $1 already installed/enabled. Check rules manually."
     }
@@ -278,8 +278,8 @@ _ensure_systemd_enabled_now() {
 }
 
 _pacman_multilib_enabled() {
-    [ -f /etc/pacman.conf ] \
-        && grep -A1 '^\[multilib\]' /etc/pacman.conf | grep -q '^Include = '
+    [ -f /etc/pacman.conf ] &&
+        grep -A1 '^\[multilib\]' /etc/pacman.conf | grep -q '^Include = '
 }
 
 _ensure_pacman_multilib() {
@@ -333,7 +333,7 @@ _setup_git_config() {
     read -r -p "  → " git_email
 
     _echo_run mkdir -p "$config_dir"
-    cat > "$config_file" << EOF
+    cat >"$config_file" <<EOF
 [user]
     name = $git_name
     email = $git_email
@@ -372,15 +372,15 @@ _setup_hostname() {
     if command -v hostnamectl &>/dev/null; then
         _echo_run sudo hostnamectl set-hostname "$hostname"
     else
-        _echo_run sudo tee /etc/hostname > /dev/null <<< "$hostname"
+        _echo_run sudo tee /etc/hostname >/dev/null <<<"$hostname"
         _echo_run sudo hostname "$hostname"
     fi
 }
 
 _wheel_sudo_nopasswd_enabled() {
     grep -rE '^[[:space:]]*#?[[:space:]]*%wheel[[:space:]].*NOPASSWD' \
-        /etc/sudoers /etc/sudoers.d/* 2>/dev/null \
-        | grep -qvE '^[[:space:]]*#'
+        /etc/sudoers /etc/sudoers.d/* 2>/dev/null |
+        grep -qvE '^[[:space:]]*#'
 }
 
 _setup_wheel_nopasswd_sudo() {
@@ -396,7 +396,7 @@ _setup_wheel_nopasswd_sudo() {
         return 0
     else
         _info "Enabling NOPASSWD for %wheel in ${sudoers_file}..."
-        printf '%s\n' '%wheel ALL=(ALL) NOPASSWD: ALL' | _echo_run sudo tee "$sudoers_file" > /dev/null
+        printf '%s\n' '%wheel ALL=(ALL) NOPASSWD: ALL' | _echo_run sudo tee "$sudoers_file" >/dev/null
         _echo_run sudo chmod 440 "$sudoers_file"
         _echo_run sudo visudo -cf "$sudoers_file" || {
             _error "sudoers validation failed; removing ${sudoers_file}"
@@ -454,8 +454,8 @@ _install_cursor_fedora() {
             'enabled=1' \
             'gpgcheck=1' \
             "gpgkey=${key_url}" \
-            'repo_gpgcheck=1' \
-            | _echo_run sudo tee "$repo_file" > /dev/null
+            'repo_gpgcheck=1' |
+            _echo_run sudo tee "$repo_file" >/dev/null
     fi
 
     if rpm -q cursor &>/dev/null; then
@@ -480,11 +480,11 @@ _install_cursor_debian() {
     if [ ! -f "$list_file" ]; then
         _info "Adding Cursor APT repository..."
         _echo_run sudo mkdir -p /usr/share/keyrings
-        _echo_run curl -fsSL https://downloads.cursor.com/keys/anysphere.asc \
-            | sudo gpg --dearmor -o "$keyring"
+        _echo_run curl -fsSL https://downloads.cursor.com/keys/anysphere.asc |
+            sudo gpg --dearmor -o "$keyring"
         printf '%s\n' \
-            "deb [signed-by=${keyring}] https://downloads.cursor.com/aptrepo stable main" \
-            | _echo_run sudo tee "$list_file" > /dev/null
+            "deb [signed-by=${keyring}] https://downloads.cursor.com/aptrepo stable main" |
+            _echo_run sudo tee "$list_file" >/dev/null
         if command -v nala &>/dev/null; then
             _echo_run sudo nala update
         else

@@ -24,7 +24,7 @@ apt_tools=(
 basic_packages=(
     "git"
     "just"
-    "curl"          # Needed for various installations
+    "curl" # Needed for various installations
     "wget"
     "sed"
     "gawk"

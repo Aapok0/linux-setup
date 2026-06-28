@@ -66,11 +66,11 @@ _install_ghostty() {
     if [ ! -f "$list" ]; then
         _info "Adding debian.griffo.io repository for ghostty (not in official Debian repos)..."
         _echo_run sudo mkdir -p /usr/share/keyrings
-        _echo_run curl -fsSL https://debian.griffo.io/EA0F721D231FDD3A0A17B9AC7808B4DD62C41256.asc \
-            | sudo gpg --dearmor -o "$keyring"
+        _echo_run curl -fsSL https://debian.griffo.io/EA0F721D231FDD3A0A17B9AC7808B4DD62C41256.asc |
+            sudo gpg --dearmor -o "$keyring"
         printf '%s\n' \
-            "deb [signed-by=${keyring}] https://debian.griffo.io/apt ${codename} main" \
-            | _echo_run sudo tee "$list" > /dev/null
+            "deb [signed-by=${keyring}] https://debian.griffo.io/apt ${codename} main" |
+            _echo_run sudo tee "$list" >/dev/null
         _echo_run sudo nala update
     fi
     _echo_run sudo nala install -y ghostty
@@ -94,11 +94,11 @@ _setup_tailscale() {
     local keyring="/usr/share/keyrings/tailscale-archive-keyring.gpg"
     local list="/etc/apt/sources.list.d/tailscale.list"
     _echo_run sudo mkdir -p --mode=0755 /usr/share/keyrings
-    _echo_run curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.noarmor.gpg" \
-        | sudo tee "$keyring" > /dev/null
+    _echo_run curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.noarmor.gpg" |
+        sudo tee "$keyring" >/dev/null
     _echo_run sudo chmod 0644 "$keyring"
-    _echo_run curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.tailscale-keyring.list" \
-        | sudo tee "$list" > /dev/null
+    _echo_run curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.tailscale-keyring.list" |
+        sudo tee "$list" >/dev/null
     _echo_run sudo chmod 0644 "$list"
     _echo_run sudo nala update
     _install_pkg "tailscale"
@@ -180,7 +180,7 @@ main() {
     _install_pip_user_packages "${basic_packages_pip[@]}"
 
     _info "Installing pyenv for Python version management..."
-    if ! command -v pyenv &> /dev/null; then
+    if ! command -v pyenv &>/dev/null; then
         _info "Cloning pyenv..."
         _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
         _info "Building pyenv..."
@@ -218,7 +218,7 @@ main() {
     fi
 
     _info "Setting up NordVPN..."
-    if ! command -v nordvpn &> /dev/null; then
+    if ! command -v nordvpn &>/dev/null; then
         _info "Adding NordVPN repository and installing..."
         _echo_run curl https://repo.nordvpn.com/gpg/nordvpn_public.asc | sudo apt-key add -
         _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'

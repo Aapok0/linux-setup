@@ -16,7 +16,7 @@ if [[ ! -d /usr/lib/sysimage/libdnf5 ]]; then
 fi
 
 desc=$(/usr/local/bin/snapper-desc.sh "$PID")
-echo "$desc" > "$STATE_DIR/snapper_desc_${PID}"
+echo "$desc" >"$STATE_DIR/snapper_desc_${PID}"
 
 pre=$(snapper -c root create -c number -t pre -p -d "$desc") || exit 1
-echo "$pre" > "$STATE_DIR/snapper_pre_${PID}"
+echo "$pre" >"$STATE_DIR/snapper_pre_${PID}"

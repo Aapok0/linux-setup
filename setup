@@ -46,8 +46,7 @@ main() {
     username="$(whoami)"
     _info "Linux setup script for Arch, Debian, and Fedora"
 
-    distro=$(_get_distro "$1")
-    if [ $? -ne 0 ] || [ -z "$distro" ]; then
+    if ! distro=$(_get_distro "$1") || [ -z "$distro" ]; then
         _error "Unknown distribution. Provide 'arch', 'debian', or 'fedora' as an argument."
         exit 1
     fi

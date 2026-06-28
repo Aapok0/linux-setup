@@ -29,7 +29,7 @@ _dnf() {
 }
 
 _pkg_is_installed() {
-    rpm -q "$1" &> /dev/null
+    rpm -q "$1" &>/dev/null
 }
 
 _install_pkg() {
@@ -79,7 +79,7 @@ _install_flatpak_apps() {
     local apps=("$@")
     [ ${#apps[@]} -eq 0 ] && return 0
 
-    command -v flatpak &> /dev/null || {
+    command -v flatpak &>/dev/null || {
         _warn "flatpak not installed; skipping $category"
         return 0
     }
@@ -129,7 +129,7 @@ _setup_firefox_wayland() {
 
     _info "Enabling Firefox native Wayland (MOZ_ENABLE_WAYLAND=1)..."
     _echo_run sudo mkdir -p /etc/environment.d
-    printf '%s\n' 'MOZ_ENABLE_WAYLAND=1' | _echo_run sudo tee "$conf" > /dev/null
+    printf '%s\n' 'MOZ_ENABLE_WAYLAND=1' | _echo_run sudo tee "$conf" >/dev/null
     _info "Log out and back in (or reboot) for Firefox to pick up the change"
 }
 
@@ -139,7 +139,7 @@ _enable_rpmfusion() {
         return 0
     }
 
-    if rpm -q rpmfusion-free-release &> /dev/null && rpm -q rpmfusion-nonfree-release &> /dev/null; then
+    if rpm -q rpmfusion-free-release &>/dev/null && rpm -q rpmfusion-nonfree-release &>/dev/null; then
         _info "RPM Fusion already enabled"
         return 0
     fi
@@ -168,14 +168,14 @@ _setup_systemd_resolved() {
 }
 
 _setup_nordvpn() {
-    if command -v nordvpn &> /dev/null; then
+    if command -v nordvpn &>/dev/null; then
         _info "NordVPN already installed"
         return 0
     fi
 
     _info "Setting up NordVPN..."
     _echo_run sudo rpm --import https://repo.nordvpn.com/gpg/nordvpn_public.asc
-    _echo_run sudo tee /etc/yum.repos.d/nordvpn.repo > /dev/null << 'EOF'
+    _echo_run sudo tee /etc/yum.repos.d/nordvpn.repo >/dev/null <<'EOF'
 [nordvpn]
 name=NordVPN
 baseurl=https://repo.nordvpn.com/yum/nordvpn/centos/$basearch/
@@ -241,9 +241,9 @@ _btrfs_has_snapper_layout() {
 
 _btrfs_fstab_needs_mount_opts() {
     grep -q btrfs /etc/fstab 2>/dev/null || return 1
-    grep btrfs /etc/fstab | grep -q 'noatime' \
-        && grep btrfs /etc/fstab | grep -q 'discard=async' \
-        && grep btrfs /etc/fstab | grep -q 'compress=zstd:1' && return 1
+    grep btrfs /etc/fstab | grep -q 'noatime' &&
+        grep btrfs /etc/fstab | grep -q 'discard=async' &&
+        grep btrfs /etc/fstab | grep -q 'compress=zstd:1' && return 1
     return 0
 }
 
@@ -262,11 +262,11 @@ _setup_btrfs_mount_opts() {
         if [[ "$line" == *" btrfs "* ]] && [[ "$line" == *"subvol="* ]]; then
             if [[ "$line" =~ subvol=([^,[:space:]]+) ]]; then
                 subvol="${BASH_REMATCH[1]}"
-                line=$(sed -E "s/subvol=[^[:space:]]+/subvol=${subvol},${BTRFS_MOUNT_OPTS}/" <<< "$line")
+                line=$(sed -E "s/subvol=[^[:space:]]+/subvol=${subvol},${BTRFS_MOUNT_OPTS}/" <<<"$line")
             fi
         fi
         printf '%s\n' "$line"
-    done < /etc/fstab > "$tmp"
+    done </etc/fstab >"$tmp"
     _echo_run sudo cp "$tmp" /etc/fstab
     rm -f "$tmp"
     _warn "Reboot recommended to apply btrfs mount options"
@@ -503,7 +503,7 @@ _ensure_dracut_resume() {
     if [ ! -f "$conf" ] || ! grep -q 'resume' "$conf" 2>/dev/null; then
         _info "Enabling dracut resume module..."
         _echo_run sudo mkdir -p /etc/dracut.conf.d
-        printf '%s\n' 'add_dracutmodules+=" resume "' | _echo_run sudo tee "$conf" > /dev/null
+        printf '%s\n' 'add_dracutmodules+=" resume "' | _echo_run sudo tee "$conf" >/dev/null
         changed=true
     else
         _info "dracut resume module already configured"
@@ -705,7 +705,7 @@ main() {
     _install_packages "rpmfusion nonfree" "${rpmfusion_nonfree_packages[@]}"
     _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
 
-    if command -v steamtinkerlaunch &> /dev/null; then
+    if command -v steamtinkerlaunch &>/dev/null; then
         _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
         _echo_run steamtinkerlaunch compat add
     else
@@ -716,7 +716,7 @@ main() {
     _install_pkg "python3-pip"
     _install_pkg "pipx"
     for tool in "${pip_packages[@]}"; do
-        command -v "$tool" &> /dev/null && {
+        command -v "$tool" &>/dev/null && {
             _info "$tool already available"
             continue
         }
