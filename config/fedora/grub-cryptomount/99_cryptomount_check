@@ -57,11 +57,17 @@ fi
 echo "[${SCRIPT_NAME}] Line missing or incorrect. Current first line: '${FIRST_LINE}'"
 echo "[${SCRIPT_NAME}] Fixing ${GRUB_CFG}..."
 
-TMPFILE="$(mktemp)" || { echo "[${SCRIPT_NAME}] ERROR: Could not create temp file. Aborting."; exit 1; }
+TMPFILE="$(mktemp)" || {
+    echo "[${SCRIPT_NAME}] ERROR: Could not create temp file. Aborting."
+    exit 1
+}
 
-grep -v '^cryptomount -u ' "$GRUB_CFG" > "$TMPFILE" || true
+grep -v '^cryptomount -u ' "$GRUB_CFG" >"$TMPFILE" || true
 
-{ echo "$EXPECTED_LINE"; cat "$TMPFILE"; } > "${GRUB_CFG}.new"
+{
+    echo "$EXPECTED_LINE"
+    cat "$TMPFILE"
+} >"${GRUB_CFG}.new"
 
 mv "${GRUB_CFG}.new" "$GRUB_CFG"
 rm -f "$TMPFILE"

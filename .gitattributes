@@ -1,0 +1,4 @@
+# Normalize line endings so shellcheck/shfmt checks stay deterministic.
+* text=auto eol=lf
+
+*.sh text eol=lf

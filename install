@@ -35,7 +35,7 @@ main() {
             --backup)
                 want_backup=1
                 ;;
-            -h|--help)
+            -h | --help)
                 _usage
                 exit 0
                 ;;

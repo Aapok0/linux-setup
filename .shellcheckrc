@@ -1,0 +1,11 @@
+# ShellCheck config for linux-setup
+#
+# Scripts source vars/* and scripts/lib/common.sh at runtime via ${REPO_ROOT},
+# and many globals are assigned in one file but consumed in another (or read
+# from sourced helpers). That architecture makes a few checks pure noise here:
+#
+#   SC1091  can't follow non-constant 'source "${REPO_ROOT}/..."'
+#   SC2034  vars/* arrays + cross-file globals look "unused" within one file
+#   SC2016  intentional literal $VARs in _out '...' install hints / bash -c '...'
+external-sources=true
+disable=SC1091,SC2034,SC2016

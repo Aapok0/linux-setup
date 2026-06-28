@@ -1,0 +1,33 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
+  "packageRules": [
+    {
+      "description": "Auto-merge GitHub Actions and CI tool patch/minor/digest updates",
+      "matchManagers": ["github-actions", "custom.regex"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "CI tool versions pinned in workflow env: blocks (annotated with # renovate:)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+\\w+_VERSION:\\s*[\"']?(?<currentValue>[^\"'\\s]+)"
+      ]
+    },
+    {
+      "description": "nvm version pinned in setup scripts",
+      "customType": "regex",
+      "managerFilePatterns": ["/^scripts/setup-.+$/"],
+      "matchStrings": ["nvm-sh/nvm/(?<currentValue>v[0-9][0-9.]*)/"],
+      "depNameTemplate": "nvm-sh/nvm",
+      "datasourceTemplate": "github-tags"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+name: lint
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned tool version, kept up to date by Renovate (see renovate.json).
+  # renovate: datasource=github-releases depName=mvdan/sh
+  SHFMT_VERSION: v3.13.1
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # Scope: actively-maintained scripts only. The Arch installer
+      # (scripts/install-arch*, scripts/lib/install.sh) is excluded for now and
+      # tracked to be cleaned up later; scripts/install-arch also fails to parse
+      # (arithmetic with an embedded [ ] test). shellcheck reads .shellcheckrc.
+      - name: Run shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -x \
+            setup \
+            install \
+            scripts/setup-arch \
+            scripts/setup-debian \
+            scripts/setup-fedora \
+            scripts/lib/common.sh \
+            config/fedora/snapper/*.sh \
+            config/fedora/grub-cryptomount/99_cryptomount_check \
+            vars/arch-vars \
+            vars/debian-vars \
+            vars/fedora-vars
+
+  shfmt:
+    name: shfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install shfmt
+        run: |
+          curl -fsSL -o /tmp/shfmt \
+            "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_amd64"
+          chmod +x /tmp/shfmt
+
+      # scripts/install-arch is excluded: shfmt cannot parse line 498
+      # (a [ ] test inside $(( )) arithmetic). Everything else is formatted.
+      - name: Check formatting (-i 4 -ci)
+        run: |
+          /tmp/shfmt --version
+          /tmp/shfmt -d -i 4 -ci \
+            setup \
+            install \
+            scripts/lib/common.sh \
+            scripts/lib/install.sh \
+            scripts/install-arch-backup \
+            scripts/install-arch-reinstall \
+            scripts/setup-arch \
+            scripts/setup-debian \
+            scripts/setup-fedora \
+            config/fedora/snapper/*.sh \
+            config/fedora/grub-cryptomount/99_cryptomount_check \
+            vars/arch-vars \
+            vars/debian-vars \
+            vars/fedora-vars
