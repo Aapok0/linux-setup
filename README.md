@@ -146,6 +146,53 @@ Copies `/etc` configs to `~/install/etc/` for reinstall restore (see `instructio
 
 Logs: `logs/<timestamp>_install-arch.log`, `_install-arch-reinstall.log`, or `_install-arch-backup.log`.
 
+## Testing locally
+
+Linting and a stubbed end-to-end smoke run can be done locally; the same lint
+checks run in CI (`.github/workflows/lint.yml`, pinned `shellcheck`/`shfmt`).
+
+### Lint & format
+
+```bash
+bash -n scripts/*                     # quick parse check, no tools needed
+shellcheck -x setup install scripts/setup-* scripts/install-arch* scripts/lib/*.sh
+shfmt -d -i 4 -ci setup install scripts/setup-* scripts/install-arch* scripts/lib/*.sh
+```
+
+Repo-specific `shellcheck` disables (cross-file globals, sourced helpers, the
+`install-arch`/`install.sh` call graph) are documented in `.shellcheckrc`.
+
+### Container smoke tests
+
+`tests/run.sh` runs each `setup-<distro>` script end to end inside a throwaway
+container with every privileged/network command stubbed (`tests/stub.sh`). It
+catches what static analysis cannot: unbound variables, bad substitutions,
+runtime control flow, wrong flags, distro-detection branches, and the order of
+privileged calls.
+
+```bash
+tests/run.sh                       # smoke all three distros (uses docker)
+tests/run.sh smoke debian          # a single distro
+tests/run.sh source                # lighter tier: source libs + vars, assert key fns
+RUNTIME="sudo docker" tests/run.sh # rootful docker needs sudo (or join the docker group)
+RUNTIME=podman tests/run.sh        # podman works too
+```
+
+- No privilege is needed for the setup smoke — the stubs turn `sudo`,
+  `systemctl`, and the package managers into no-ops.
+- A non-zero script exit is **expected** (stubbed steps bump `SETUP_ERRORS`); a
+  run passes when it reaches completion with no fatal shell errors.
+- Only the distro base images are required; they pull on first run.
+
+### Arch install testing
+
+The smoke harness does **not** cover `install-arch` (disk partitioning, LUKS,
+LVM, btrfs, `pacstrap`). The *logic* up to a mounted target can be exercised in
+a `--privileged` container against a loopback image
+(`losetup`/`parted`/`cryptsetup`/`lvm`/`mkfs`/`pacstrap`), but verifying the
+result actually **boots** (GRUB, initramfs, LUKS unlock, EFI) requires a VM
+(e.g. QEMU). This is tracked as future work, not part of the current harness.
+
 ## Post-setup
 
 These steps are also printed by the script on completion:
