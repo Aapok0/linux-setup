@@ -585,7 +585,7 @@ _reinstall_restore_path() {
 }
 
 _verify_reinstall_backup() {
-    local backup_root required missing=0
+    local backup_root required missing_required=0
 
     backup_root=$(_reinstall_backup_root)
 
@@ -598,11 +598,11 @@ _verify_reinstall_backup() {
     for required in etc/pacman.conf etc/mkinitcpio.conf etc/default/grub; do
         if [ ! -f "${backup_root}/${required}" ]; then
             _warn "Missing backup file: ${required}"
-            missing=1
+            missing_required=1
         fi
     done
 
-    if [ "$missing" -eq 1 ]; then
+    if [ "$missing_required" -eq 1 ]; then
         if ! _prompt_yes_no "Some backup files are missing. Continue anyway? (y/n): "; then
             return 2
         fi
@@ -648,7 +648,7 @@ _prompt_hostname() {
     _section "System Hostname"
 
     while true; do
-        read -p "Enter hostname: " INSTALL_HOSTNAME
+        read -rp "Enter hostname: " INSTALL_HOSTNAME
 
         if [[ $INSTALL_HOSTNAME =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
             _info "Hostname set to: $INSTALL_HOSTNAME"
@@ -668,7 +668,7 @@ _prompt_timezone() {
     _out ""
 
     while true; do
-        read -p "Enter timezone [${TIMEZONE}]: " timezone
+        read -rp "Enter timezone [${TIMEZONE}]: " timezone
         timezone=${timezone:-$TIMEZONE}
 
         if [ -f "/usr/share/zoneinfo/${timezone}" ] || [ -f "${MNT}/usr/share/zoneinfo/${timezone}" ]; then
@@ -689,7 +689,7 @@ _prompt_install_username() {
     _out ""
 
     while true; do
-        read -p "Enter username: " username
+        read -rp "Enter username: " username
 
         if [[ $username =~ ^[a-z_][a-z0-9_-]*$ ]]; then
             INSTALL_USERNAME=$username
@@ -990,7 +990,7 @@ _prompt_cpu_microcode_package() {
     _out "[3] Skip microcode"
 
     while true; do
-        read -p "Select microcode package [1-3]: " choice
+        read -rp "Select microcode package [1-3]: " choice
 
         case $choice in
             1)
@@ -1040,7 +1040,7 @@ _prompt_gpu_packages() {
     _out "[5] Skip GPU drivers"
 
     while true; do
-        read -p "Select GPU driver set [1-5]: " choice
+        read -rp "Select GPU driver set [1-5]: " choice
 
         case $choice in
             1)

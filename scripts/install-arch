@@ -60,7 +60,7 @@ _human_readable_size() {
     local bytes=$1
     numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || {
         # Fallback if numfmt is not available
-        echo "$(( bytes / 1024 / 1024 / 1024 ))GB"
+        echo "$((bytes / 1024 / 1024 / 1024))GB"
     }
 }
 
@@ -85,7 +85,7 @@ _list_available_devices() {
     _section "Available Block Devices"
 
     local idx=0
-    while [ $idx -lt ${#devices[@]} ]; do
+    while [ "$idx" -lt "${#devices[@]}" ]; do
         _out "[$idx] ${devices[$idx]}"
         ((idx++))
     done
@@ -101,7 +101,7 @@ _prompt_device_selection() {
     local device_name
 
     while true; do
-        read -p "$prompt_msg" selected_device
+        read -rp "$prompt_msg" selected_device
 
         # Check, if input is an index number
         if [[ $selected_device =~ ^[0-9]+$ ]]; then
@@ -111,7 +111,7 @@ _prompt_device_selection() {
                 # Change to /dev/xxx format
                 selected_device="/dev/$device_name"
                 eval "$device_var=$selected_device"
-                _info "Selected device: $selected_device (Size: $(_human_readable_size $(_get_device_size "$selected_device")))"
+                _info "Selected device: $selected_device (Size: $(_human_readable_size "$(_get_device_size "$selected_device")"))"
                 return 0
             else
                 _error "Invalid index: $selected_device. Please enter a valid index."
@@ -127,7 +127,7 @@ _prompt_device_selection() {
                 selected_device="/dev/$selected_device"
             fi
             eval "$device_var=$selected_device"
-            _info "Selected device: $selected_device (Size: $(_human_readable_size $(_get_device_size "$selected_device")))"
+            _info "Selected device: $selected_device (Size: $(_human_readable_size "$(_get_device_size "$selected_device")"))"
             return 0
         else
             _error "Invalid device or index: $selected_device. Please try again."
@@ -142,46 +142,48 @@ _prompt_device_selection() {
 _calculate_available_space() {
     local device=$1
     local partition_name=$2
-    local device_size_bytes=$(_get_device_size "$device")
-    local device_size_gb=$(( device_size_bytes / 1024 / 1024 / 1024 ))
+    local device_size_bytes
+    device_size_bytes=$(_get_device_size "$device")
+    local device_size_gb=$((device_size_bytes / 1024 / 1024 / 1024))
     local reserved_space=0
 
     # Reserve boot partitions, if on same device as root
     if [ "$partition_name" = "ROOT" ]; then
-        reserved_space=$(( BOOT_EFI_SIZE + BOOT_SIZE ))
+        reserved_space=$((BOOT_EFI_SIZE + BOOT_SIZE))
         # Only reserve swap, if it's a partition (not LVM)
         if [ "$SWAP_TYPE" = "partition" ] && [ -n "$SWAP_SIZE" ]; then
-            reserved_space=$(( reserved_space + SWAP_SIZE ))
+            reserved_space=$((reserved_space + SWAP_SIZE))
         fi
     fi
 
     # Reserve boot partitions, swap, and root, if home is on same device as root
     if [ "$partition_name" = "HOME" ] && [ "$HOME_DEVICE" = "$ROOT_DEVICE" ]; then
-        reserved_space=$(( reserved_space + BOOT_EFI_SIZE + BOOT_SIZE ))
+        reserved_space=$((reserved_space + BOOT_EFI_SIZE + BOOT_SIZE))
         # Only reserve swap, if it's a partition (not LVM)
         if [ "$SWAP_TYPE" = "partition" ] && [ -n "$SWAP_SIZE" ]; then
-            reserved_space=$(( reserved_space + SWAP_SIZE ))
+            reserved_space=$((reserved_space + SWAP_SIZE))
         fi
         # Also reserve root partition size, if specified
         if [ -n "$ROOT_SIZE" ]; then
-            reserved_space=$(( reserved_space + ROOT_SIZE ))
+            reserved_space=$((reserved_space + ROOT_SIZE))
         fi
     fi
 
-    local available_gb=$(( device_size_gb - reserved_space ))
-    if [ $available_gb -lt 0 ]; then
+    local available_gb=$((device_size_gb - reserved_space))
+    if [ "$available_gb" -lt 0 ]; then
         available_gb=0
     fi
 
-    echo $available_gb
+    echo "$available_gb"
 }
 
 _prompt_partition_size() {
     local partition_name=$1
     local device=$2
-    local device_size_bytes=$(_get_device_size "$device")
-    local device_size_human=$(_human_readable_size $device_size_bytes)
-    local available_gb=$(_calculate_available_space "$device" "$partition_name")
+    local device_size_bytes device_size_human available_gb
+    device_size_bytes=$(_get_device_size "$device")
+    device_size_human=$(_human_readable_size "$device_size_bytes")
+    available_gb=$(_calculate_available_space "$device" "$partition_name")
     local size_value
     local size_unit
 
@@ -207,7 +209,7 @@ _prompt_partition_size() {
             fi
         fi
 
-        read -p "Enter size (e.g., '100G' for 100GB or 'all' to use all available space): " size_input
+        read -rp "Enter size (e.g., '100G' for 100GB or 'all' to use all available space): " size_input
 
         if [ "$size_input" = "all" ]; then
             eval "${partition_name}_SIZE=all"
@@ -236,7 +238,7 @@ _get_total_ram() {
     local ram_kb
     ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     # Convert KB to GB - round to nearest GB
-    echo $(( (ram_kb + 1048575) / 1048576 ))
+    echo $(((ram_kb + 1048575) / 1048576))
 }
 
 _prompt_swap_type() {
@@ -249,7 +251,7 @@ _prompt_swap_type() {
         _out "Select swap type:"
         _out "[1] Swap as partition"
         _out "[2] Swap as LVM logical volume"
-        read -p "Enter choice [1 or 2]: " swap_type
+        read -rp "Enter choice [1 or 2]: " swap_type
 
         case $swap_type in
             1)
@@ -273,7 +275,7 @@ _prompt_hibernation() {
     local response
 
     _out ""
-    read -p "Do you need hibernation support? (y/n): " response
+    read -rp "Do you need hibernation support? (y/n): " response
 
     if [[ $response =~ ^[Yy]$ ]]; then
         HIBERNATION_ENABLED=true
@@ -290,37 +292,38 @@ _calculate_sqrt() {
     local bit=1
 
     # Find the highest bit
-    while [ $((bit * bit)) -le $num ]; do
+    while [ $((bit * bit)) -le "$num" ]; do
         bit=$((bit * 2))
     done
     bit=$((bit / 2))
 
     # Binary search for square root
-    while [ $bit -gt 0 ]; do
-        if [ $(((sqrt + bit) * (sqrt + bit))) -le $num ]; then
+    while [ "$bit" -gt 0 ]; do
+        if [ $(((sqrt + bit) * (sqrt + bit))) -le "$num" ]; then
             sqrt=$((sqrt + bit))
         fi
         bit=$((bit / 2))
     done
 
-    echo $sqrt
+    echo "$sqrt"
 }
 
 _calculate_swap_size() {
-    local ram_gb=$(_get_total_ram)
+    local ram_gb
     local swap_gb
     local sqrt_ram
 
-    sqrt_ram=$(_calculate_sqrt $ram_gb)
+    ram_gb=$(_get_total_ram)
+    sqrt_ram=$(_calculate_sqrt "$ram_gb")
 
     if [ "$HIBERNATION_ENABLED" = true ]; then
         # For hibernation: RAM + sqrt(RAM)
-        swap_gb=$(( ram_gb + sqrt_ram ))
+        swap_gb=$((ram_gb + sqrt_ram))
         _info "Swap size for hibernation: ${swap_gb}GB (RAM: ${ram_gb}GB + sqrt(RAM): ${sqrt_ram}GB)"
     else
         # For non-hibernation: sqrt(RAM), minimum 2GB
         swap_gb=$sqrt_ram
-        if [ $swap_gb -lt 2 ]; then
+        if [ "$swap_gb" -lt 2 ]; then
             swap_gb=2
         fi
         _info "Swap size without hibernation: sqrt(RAM): ${swap_gb}GB"
@@ -363,14 +366,16 @@ _print_configuration_summary() {
 
     # Display root and home partition size even, when all is selected
     if [ "$ROOT_SIZE_UNIT" = "all" ]; then
-        local available_root=$(_calculate_available_space "$ROOT_DEVICE" "ROOT")
+        local available_root
+        available_root=$(_calculate_available_space "$ROOT_DEVICE" "ROOT")
         root_display="${available_root}GB (all available)"
     else
         root_display="${ROOT_SIZE}${ROOT_SIZE_UNIT}"
     fi
 
     if [ "$HOME_SIZE_UNIT" = "all" ]; then
-        local available_home=$(_calculate_available_space "$HOME_DEVICE" "HOME")
+        local available_home
+        available_home=$(_calculate_available_space "$HOME_DEVICE" "HOME")
         home_display="${available_home}GB (all available)"
     else
         home_display="${HOME_SIZE}${HOME_SIZE_UNIT}"
@@ -428,7 +433,7 @@ _prompt_format_confirmation() {
     _out ""
 
     while true; do
-        read -p "Do you want to format $device and create new partitions? (yes/no): " response
+        read -rp "Do you want to format $device and create new partitions? (yes/no): " response
 
         case $response in
             yes)
@@ -495,7 +500,13 @@ _setup_disk_partitions() {
             end="100%"
             _info "Creating root partition (all remaining space)..."
         else
-            end="$((5 + (swap_on_this_device && [ "$SWAP_TYPE" = "partition" ] ? swap_size : 0) + root_size))${root_unit}"
+            # Root starts after the 5GB boot area plus any swap partition placed
+            # on this device; end is that offset plus the requested root size.
+            local swap_offset=0
+            if [ "$swap_on_this_device" = true ] && [ "$SWAP_TYPE" = "partition" ]; then
+                swap_offset=$swap_size
+            fi
+            end="$((5 + swap_offset + root_size))${root_unit}"
             _info "Creating root partition (${root_size}${root_unit})..."
         fi
         _echo_run parted -s -a optimal "$device" mkpart root linux "$start" "$end" || return 1
@@ -538,8 +549,8 @@ _resolve_partition_by_label() {
     local label=$2
     local part
 
-    part=$(lsblk -ln -o NAME,PARTLABEL "$device" 2>/dev/null \
-        | awk -v label="$label" '$2 == label {print "/dev/" $1; exit}')
+    part=$(lsblk -ln -o NAME,PARTLABEL "$device" 2>/dev/null |
+        awk -v label="$label" '$2 == label {print "/dev/" $1; exit}')
 
     if [ -z "$part" ] || [ ! -b "$part" ]; then
         _error "Could not resolve partition '$label' on $device"
@@ -911,7 +922,7 @@ main() {
     fi
 
     # Check if internet is available
-    if ! ping -c 1 8.8.8.8 &> /dev/null; then
+    if ! ping -c 1 8.8.8.8 &>/dev/null; then
         _warn "Internet connection not available. Some features may not work."
     fi
 

@@ -7,7 +7,9 @@ permissions:
   contents: read
 
 env:
-  # Pinned tool version, kept up to date by Renovate (see renovate.json).
+  # Pinned tool versions, kept up to date by Renovate (see renovate.json).
+  # renovate: datasource=github-releases depName=koalaman/shellcheck
+  SHELLCHECK_VERSION: v0.11.0
   # renovate: datasource=github-releases depName=mvdan/sh
   SHFMT_VERSION: v3.13.1
 
@@ -18,10 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # Scope: actively-maintained scripts only. The Arch installer
-      # (scripts/install-arch*, scripts/lib/install.sh) is excluded for now and
-      # tracked to be cleaned up later; scripts/install-arch also fails to parse
-      # (arithmetic with an embedded [ ] test). shellcheck reads .shellcheckrc.
+      - name: Install shellcheck
+        run: |
+          curl -fsSL \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            | tar -xJ -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+
+      # shellcheck reads .shellcheckrc (external-sources + repo-specific disables).
       - name: Run shellcheck
         run: |
           shellcheck --version
@@ -31,7 +37,11 @@ jobs:
             scripts/setup-arch \
             scripts/setup-debian \
             scripts/setup-fedora \
+            scripts/install-arch \
+            scripts/install-arch-backup \
+            scripts/install-arch-reinstall \
             scripts/lib/common.sh \
+            scripts/lib/install.sh \
             config/fedora/snapper/*.sh \
             config/fedora/grub-cryptomount/99_cryptomount_check \
             vars/arch-vars \
@@ -50,8 +60,6 @@ jobs:
             "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_amd64"
           chmod +x /tmp/shfmt
 
-      # scripts/install-arch is excluded: shfmt cannot parse line 498
-      # (a [ ] test inside $(( )) arithmetic). Everything else is formatted.
       - name: Check formatting (-i 4 -ci)
         run: |
           /tmp/shfmt --version
@@ -60,6 +68,7 @@ jobs:
             install \
             scripts/lib/common.sh \
             scripts/lib/install.sh \
+            scripts/install-arch \
             scripts/install-arch-backup \
             scripts/install-arch-reinstall \
             scripts/setup-arch \
