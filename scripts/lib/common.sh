@@ -188,7 +188,10 @@ _prompt_yes_no() {
 
 _to_ssh_url() {
     local url=$1
-    echo "$url" | sed 's|https://github\.com/|git@github.com:|'
+    case "$url" in
+        https://github.com/*) echo "git@github.com:${url#https://github.com/}" ;;
+        *) echo "$url" ;;
+    esac
 }
 
 _set_ssh_remote() {
