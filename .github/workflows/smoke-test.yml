@@ -1,4 +1,4 @@
-name: smoke
+name: smoke-test
 
 # Container smoke tests for the setup-* scripts. Each distro runs in parallel
 # inside its base image with every privileged/network command stubbed (see
@@ -12,7 +12,7 @@ permissions:
 
 # Cancel superseded runs on the same PR to avoid wasting minutes.
 concurrency:
-  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
