@@ -2,11 +2,17 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":dependencyDashboard"
+    ":dependencyDashboard",
+    "schedule:weekly"
   ],
   "packageRules": [
     {
-      "description": "Auto-merge GitHub Actions and CI tool patch/minor/digest updates",
+      "description": "Group all deps (Actions + workflow tool pins + nvm) into one PR",
+      "matchManagers": ["github-actions", "custom.regex"],
+      "groupName": "ci dependencies"
+    },
+    {
+      "description": "Automerge patch/minor/digest (the group merges only if every member is automergeable)",
       "matchManagers": ["github-actions", "custom.regex"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "automerge": true
