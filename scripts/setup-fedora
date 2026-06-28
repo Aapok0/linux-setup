@@ -751,7 +751,7 @@ main() {
         _info "nvm already installed at ~/.nvm"
     else
         _info "Downloading and installing nvm..."
-        _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
+        _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'
         _info "nvm installed"
         _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
         _out '  export NVM_DIR="$HOME/.nvm"'
