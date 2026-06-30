@@ -53,7 +53,19 @@ cleanup_scenario() {
     # Best-effort teardown; every step tolerates "already gone". Only disable
     # swap that belongs to THIS run (our loop devices or our VGs) so we never
     # touch the host's swap. Empty LOOP_* guards avoid a bare "*" glob match.
-    local s
+    local s mp lv part vg saved_work=$WORK saved_mnt=$MNT
+    saved_work=$WORK
+    saved_mnt=$MNT
+
+    # Swap may appear as /dev/mapper/vg-lv or /dev/dm-N; target our VGs by name.
+    for vg in "$VG_ROOT" "$VG_HOME"; do
+        vgs "$vg" &>/dev/null || continue
+        while read -r lv; do
+            [ -z "$lv" ] && continue
+            swapoff "/dev/mapper/${vg}-${lv}" 2>/dev/null || true
+            swapoff "/dev/${vg}/${lv}" 2>/dev/null || true
+        done < <(lvs --noheadings -o lv_name "$vg" 2>/dev/null)
+    done
     for s in $(swapon --show=NAME --noheadings 2>/dev/null); do
         if { [ -n "$LOOP_ROOT" ] && [[ "$s" == "$LOOP_ROOT"* ]]; } ||
             { [ -n "$LOOP_HOME" ] && [[ "$s" == "$LOOP_HOME"* ]]; } ||
@@ -62,22 +74,48 @@ cleanup_scenario() {
             swapoff "$s" 2>/dev/null || true
         fi
     done
-    if [ -n "$MNT" ] && mountpoint -q "$MNT" 2>/dev/null; then
-        umount -R "$MNT" 2>/dev/null || umount -Rl "$MNT" 2>/dev/null || true
+
+    # Installer leaves the full mount tree up when reboot is declined; unmount
+    # deepest targets first (many btrfs subvol mounts under $MNT).
+    if [ -n "$saved_mnt" ]; then
+        while IFS= read -r mp; do
+            [ -n "$mp" ] && umount -l "$mp" 2>/dev/null || true
+        done < <(findmnt -Rno TARGET "$saved_mnt" 2>/dev/null | awk '{print length, $0}' | sort -rn | cut -d' ' -f2-)
     fi
-    vgchange -an "$VG_ROOT" "$VG_HOME" 2>/dev/null || true
-    vgremove -f "$VG_ROOT" "$VG_HOME" 2>/dev/null || true
-    [ -n "$LOOP_ROOT" ] && losetup -d "$LOOP_ROOT" 2>/dev/null || true
-    [ -n "$LOOP_HOME" ] && losetup -d "$LOOP_HOME" 2>/dev/null || true
-    [ -n "$WORK" ] && rm -rf "$WORK" 2>/dev/null || true
+
+    for vg in "$VG_ROOT" "$VG_HOME"; do
+        if vgs "$vg" &>/dev/null; then
+            lvchange -an "$vg" 2>/dev/null || true
+            vgchange -an "$vg" 2>/dev/null || true
+            vgremove -ff "$vg" 2>/dev/null || true
+        elif [ -e "/dev/$vg" ]; then
+            dmsetup remove "$vg" 2>/dev/null || true
+        fi
+    done
+
+    for s in "$LOOP_ROOT" "$LOOP_HOME"; do
+        [ -z "$s" ] && continue
+        for part in "${s}"p*; do
+            [ -e "$part" ] || continue
+            pvremove -ff "$part" 2>/dev/null || true
+            wipefs -a "$part" 2>/dev/null || true
+        done
+        losetup -d "$s" 2>/dev/null || true
+    done
+
+    [ -n "$saved_work" ] && rm -rf "$saved_work" 2>/dev/null || true
+    WORK=""
+    MNT=""
+    LOOP_ROOT=""
+    LOOP_HOME=""
 }
 
 trap cleanup_scenario EXIT
 
 check_host_tools() {
     local cmd missing=()
-    for cmd in losetup parted partprobe lsblk pvcreate vgcreate lvcreate \
-        mkfs.btrfs mkfs.fat mkfs.ext4 mkswap btrfs findmnt truncate; do
+    for cmd in losetup parted partprobe lsblk findmnt pvcreate vgcreate lvcreate \
+        mkfs.btrfs mkfs.fat mkfs.ext4 mkswap btrfs truncate wipefs; do
         _have "$cmd" || missing+=("$cmd")
     done
     if [ ${#missing[@]} -gt 0 ]; then
