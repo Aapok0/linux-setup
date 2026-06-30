@@ -45,6 +45,7 @@ jobs:
             tests/run.sh \
             tests/smoke.sh \
             tests/stub.sh \
+            tests/install-smoke.sh \
             config/fedora/snapper/*.sh \
             config/fedora/grub-cryptomount/99_cryptomount_check \
             vars/arch-vars \
@@ -80,6 +81,7 @@ jobs:
             tests/run.sh \
             tests/smoke.sh \
             tests/stub.sh \
+            tests/install-smoke.sh \
             config/fedora/snapper/*.sh \
             config/fedora/grub-cryptomount/99_cryptomount_check \
             vars/arch-vars \

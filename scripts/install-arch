@@ -139,6 +139,20 @@ _prompt_device_selection() {
 # Partition sizing functions
 # ============================================================================
 
+# Convert a "<number><unit>" size (unit G/M/T, as parted's decimal GB/MB/TB) to
+# whole MB, for computing absolute parted end positions.
+_size_to_mb() {
+    local spec=$1
+    local num=${spec%[GMTgmt]}
+    local unit=${spec: -1}
+
+    case $unit in
+        T | t) echo "$((num * 1000000))" ;;
+        G | g) echo "$((num * 1000))" ;;
+        *) echo "$num" ;; # M (or already unitless megabytes)
+    esac
+}
+
 _calculate_available_space() {
     local device=$1
     local partition_name=$2
@@ -494,7 +508,11 @@ _setup_disk_partitions() {
         start="$((5 + swap_size))GB"
     fi
 
-    # Create root or home partition
+    # Create root or home partition.
+    # The "ext4" fs-type below is a non-functional placeholder: parted requires
+    # a type token but does not format the partition, and on GPT it maps to the
+    # generic Linux-data GUID regardless. These partitions become LVM PVs (or
+    # LUKS containers); the real btrfs filesystems are created later on the LVs.
     if [ "$is_root_device" = true ]; then
         if [ "$root_unit" = "all" ]; then
             end="100%"
@@ -509,7 +527,7 @@ _setup_disk_partitions() {
             end="$((5 + swap_offset + root_size))${root_unit}"
             _info "Creating root partition (${root_size}${root_unit})..."
         fi
-        _echo_run parted -s -a optimal "$device" mkpart root linux "$start" "$end" || return 1
+        _echo_run parted -s -a optimal "$device" mkpart root ext4 "$start" "$end" || return 1
 
         if [ "$HOME_DEVICE" = "$device" ]; then
             start="$end"
@@ -517,10 +535,14 @@ _setup_disk_partitions() {
                 end="100%"
                 _info "Creating home partition (all remaining space)..."
             else
-                end="+${HOME_SIZE}${HOME_SIZE_UNIT}"
+                # parted has no relative "+size"; compute an absolute end from
+                # the root end (= this start) plus the requested home size.
+                local home_end_mb
+                home_end_mb=$(($(_size_to_mb "$start") + $(_size_to_mb "${HOME_SIZE}${HOME_SIZE_UNIT}")))
+                end="${home_end_mb}MB"
                 _info "Creating home partition (${HOME_SIZE}${HOME_SIZE_UNIT})..."
             fi
-            _echo_run parted -s -a optimal "$device" mkpart home linux "$start" "$end" || return 1
+            _echo_run parted -s -a optimal "$device" mkpart home ext4 "$start" "$end" || return 1
         fi
     else
         # Home device
@@ -531,7 +553,7 @@ _setup_disk_partitions() {
             end="${root_size}${root_unit}"
             _info "Creating home partition (${root_size}${root_unit})..."
         fi
-        _echo_run parted -s -a optimal "$device" mkpart home linux "$start" "$end" || return 1
+        _echo_run parted -s -a optimal "$device" mkpart home ext4 "$start" "$end" || return 1
     fi
 
     _info "Refreshing partition table on $device..."
@@ -767,13 +789,13 @@ _setup_root_volume_group() {
         _info "Swap LV: $SWAP_LV"
     fi
 
-    if [ "$SWAP_TYPE" = "lvm" ] || [ "$ROOT_SIZE_UNIT" = "all" ]; then
-        _info "Creating root logical volume (all remaining space in $VG_ROOT)..."
-        _echo_run lvcreate -n "$LV_ROOT" -l +100%FREE "$VG_ROOT" || return 1
-    else
-        _info "Creating root logical volume (${ROOT_SIZE}${ROOT_SIZE_UNIT})..."
-        _echo_run lvcreate -n "$LV_ROOT" -L "${ROOT_SIZE}${ROOT_SIZE_UNIT}" "$VG_ROOT" || return 1
-    fi
+    # The root VG holds only the optional swap LV and the root LV, and the root
+    # partition was already sized by the user, so the root LV always fills the
+    # remaining space. A fixed -L here is unsafe: parted sizes the partition in
+    # GB (10^9) while lvcreate -L reads GiB (2^30), so an exact-size request
+    # overruns the slightly-smaller PV and fails.
+    _info "Creating root logical volume (all remaining space in $VG_ROOT)..."
+    _echo_run lvcreate -n "$LV_ROOT" -l +100%FREE "$VG_ROOT" || return 1
 
     ROOT_LV="/dev/mapper/${VG_ROOT}-${LV_ROOT}"
     _info "Root LV: $ROOT_LV"
@@ -792,13 +814,11 @@ _setup_home_volume_group() {
     _info "Creating volume group $VG_HOME..."
     _echo_run vgcreate "$VG_HOME" "$pv" || return 1
 
-    if [ "$HOME_SIZE_UNIT" = "all" ]; then
-        _info "Creating home logical volume (all remaining space in $VG_HOME)..."
-        _echo_run lvcreate -n "$LV_HOME" -l +100%FREE "$VG_HOME" || return 1
-    else
-        _info "Creating home logical volume (${HOME_SIZE}${HOME_SIZE_UNIT})..."
-        _echo_run lvcreate -n "$LV_HOME" -L "${HOME_SIZE}${HOME_SIZE_UNIT}" "$VG_HOME" || return 1
-    fi
+    # The home VG holds only the home LV, and the home partition was already
+    # sized by the user, so the home LV always fills it (see root LV note above
+    # for the GB-vs-GiB hazard of a fixed -L).
+    _info "Creating home logical volume (all remaining space in $VG_HOME)..."
+    _echo_run lvcreate -n "$LV_HOME" -l +100%FREE "$VG_HOME" || return 1
 
     HOME_LV="/dev/mapper/${VG_HOME}-${LV_HOME}"
     _info "Home LV: $HOME_LV"

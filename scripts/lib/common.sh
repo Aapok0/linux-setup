@@ -541,6 +541,24 @@ _setup_docker() {
     _ensure_systemd_enabled_now docker.service
 }
 
+_setup_virtualization() {
+    local user=$1
+    shift
+    local packages=("$@")
+
+    _info "Setting up virtualization (KVM/QEMU/libvirt + Vagrant)..."
+    _install_packages "virtualization" "${packages[@]}"
+
+    _ensure_user_in_group "$user" libvirt
+    if getent group kvm &>/dev/null; then
+        _ensure_user_in_group "$user" kvm
+    fi
+    _ensure_systemd_enabled_now libvirtd.service
+
+    _info "Virtualization ready. Log out/in for group membership to apply."
+    _info "Manage VMs with virt-manager / virsh; default URI qemu:///system."
+}
+
 _install_ghostty_desktop_override() {
     [ "$(uname -s)" = "Linux" ] || return 0
     command -v ghostty &>/dev/null || return 0

@@ -247,6 +247,19 @@ _setup_tailscale() {
     _info "Connect with: sudo tailscale up"
 }
 
+_install_vagrant_libvirt_plugin() {
+    command -v vagrant &>/dev/null || {
+        _warn "vagrant not installed; skipping vagrant-libvirt plugin"
+        return 0
+    }
+    if vagrant plugin list 2>/dev/null | grep -q '^vagrant-libvirt'; then
+        _info "vagrant-libvirt plugin already installed"
+        return 0
+    fi
+    _info "Installing vagrant-libvirt plugin..."
+    _echo_run vagrant plugin install vagrant-libvirt
+}
+
 main() {
     SETUP_ERRORS=0
     _info "Setting up environment for an arch based distribution."
@@ -331,6 +344,9 @@ main() {
     _setup_tailscale
 
     _setup_docker "$USERNAME" "${docker_packages[@]}"
+
+    _setup_virtualization "$USERNAME" "${virt_packages[@]}"
+    _install_vagrant_libvirt_plugin
 
     if command -v steamtinkerlaunch &>/dev/null; then
         _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
