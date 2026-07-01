@@ -253,7 +253,7 @@ _create_home_btrfs_subvolumes() {
     _echo_run btrfs subvolume create "${MNT}/home/@home" || return 1
     _echo_run btrfs subvolume create "${MNT}/home/@home_snapshots" || return 1
     _echo_run btrfs subvolume create "${MNT}/home/@home/@media" || return 1
-    _echo_run umount -R "$MNT" || return 1
+    _echo_run umount -R "${MNT}/home" || return 1
 
     return 0
 }

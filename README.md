@@ -186,12 +186,35 @@ RUNTIME=podman tests/run.sh        # podman works too
 
 ### Arch install testing
 
-The smoke harness does **not** cover `install-arch` (disk partitioning, LUKS,
-LVM, btrfs, `pacstrap`). The *logic* up to a mounted target can be exercised in
-a `--privileged` container against a loopback image
-(`losetup`/`parted`/`cryptsetup`/`lvm`/`mkfs`/`pacstrap`), but verifying the
-result actually **boots** (GRUB, initramfs, LUKS unlock, EFI) requires a VM
-(e.g. QEMU). This is tracked as future work, not part of the current harness.
+`tests/install-smoke.sh` runs the real `install-arch` against loop-backed image
+files, so partitioning, LVM, btrfs subvolumes and mounting are exercised **for
+real** — only the chroot/Arch/network commands that can't run on a generic host
+are stubbed (`arch-chroot`, `pacstrap`, `genfstab`, `reflector`, `reboot`,
+`ping`). It needs root for loop devices, LVM and mounts, and only ever touches
+its own throwaway images and uniquely-named volume groups (`archsmoke*`).
+
+```bash
+sudo tests/install-smoke.sh              # all scenarios
+sudo tests/install-smoke.sh partition    # swap partition, root=all, separate /home
+sudo tests/install-smoke.sh lvm          # swap as an LVM logical volume, root=all
+sudo tests/install-smoke.sh sized        # swap partition + explicit root size
+sudo tests/install-smoke.sh samedevice   # root + home on one device, both sized
+```
+
+Host tools required: `parted lvm2 btrfs-progs dosfstools e2fsprogs util-linux`.
+
+Coverage and limits:
+
+- `sized` exercises an explicit root size (the swap-offset partition
+  arithmetic); `samedevice` puts root and home on one disk (the absolute home
+  end computation); `partition`/`lvm` use `root=all` with a separate `/home`.
+- Encryption (LUKS) is skipped — its interactive `cryptsetup` passphrase flow is
+  left to manual/VM testing.
+- This validates everything short of an actual **boot**. Verifying GRUB,
+  initramfs, LUKS unlock and EFI still requires a VM (e.g. QEMU).
+
+CI runs this on every PR that touches scripts/tests/workflows (the
+`arch install (loopback)` job in `.github/workflows/smoke-test.yml`).
 
 ## Post-setup
 

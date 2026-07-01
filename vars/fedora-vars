@@ -22,7 +22,7 @@
 #
 # RPM Fusion:
 #   free    — free software Fedora cannot ship (codec libs, some media players, etc.)
-#   nonfree — proprietary/redistributable-but-not-open software (NVIDIA drivers, Steam, VirtualBox)
+#   nonfree — proprietary/redistributable-but-not-open software (NVIDIA drivers, Steam)
 
 dnf_tools=(
     "dnf-plugins-core"
@@ -118,13 +118,22 @@ rpmfusion_free_packages=(
 rpmfusion_nonfree_packages=(
     "discord"
     "steam"
-    # "VirtualBox"
 )
 
 docker_packages=(
     "moby-engine"
     "docker-compose"
     "docker-buildx"
+)
+
+virt_packages=(
+    "qemu-kvm"
+    "libvirt"
+    "virt-install"
+    "virt-manager"
+    "edk2-ovmf"
+    "vagrant"
+    "vagrant-libvirt"
 )
 
 flatpak_apps=(

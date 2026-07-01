@@ -1,8 +1,13 @@
 name: smoke-test
 
-# Container smoke tests for the setup-* scripts. Each distro runs in parallel
-# inside its base image with every privileged/network command stubbed (see
-# tests/), so the scripts execute end to end without touching the host.
+# Smoke tests for the install/setup scripts. Two kinds:
+#   - setup-test: container smoke for the setup-* scripts, per distro, with every
+#     privileged/network command stubbed (see tests/), so they run end to end.
+#   - arch-install: loopback "disk" smoke for install-arch — real partitioning,
+#     LVM, btrfs and mounts against image files; only chroot/Arch/network
+#     commands are stubbed. Everything short of an actual boot (VM-only).
+# Both always run (no paths filter) so they can be REQUIRED checks; the heavy
+# step is gated on relevant file changes and otherwise reports success.
 
 on:
   pull_request:
@@ -29,20 +34,57 @@ jobs:
           fetch-depth: 0 # need the base commit to diff against
 
       # Short-circuit: only the docker run is gated, the job itself always
-      # reports. Relevant = scripts/, tests/, setup, or workflow files.
+      # reports. Relevant = setup scripts, their libs/vars/config, test harness.
       - name: Detect relevant changes
         id: changed
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           files="$(git diff --name-only "$base" HEAD)"
           printf 'changed files:\n%s\n' "$files"
-          if printf '%s\n' "$files" | grep -qE '^(scripts/|tests/|setup$|\.github/workflows/)'; then
+          if printf '%s\n' "$files" | grep -qE \
+            '^(scripts/setup-|scripts/lib/common\.sh|vars/|config/|tests/(smoke|run|stub)\.sh|setup$|\.github/workflows/smoke-test\.yml)'; then
             echo "relevant=true" >>"$GITHUB_OUTPUT"
           else
             echo "relevant=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::No script/test/CI changes — skipping docker smoke run."
+            echo "::notice::No setup-script/test changes — skipping docker smoke run."
           fi
 
       - name: Smoke test
         if: steps.changed.outputs.relevant == 'true'
         run: tests/run.sh smoke ${{ matrix.distro }}
+
+  arch-install:
+    name: arch install (loopback)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # need the base commit to diff against
+
+      # Relevant = install-arch and its shared libs, plus the loopback harness.
+      - name: Detect relevant changes
+        id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          files="$(git diff --name-only "$base" HEAD)"
+          printf 'changed files:\n%s\n' "$files"
+          if printf '%s\n' "$files" | grep -qE \
+            '^(scripts/install-arch$|scripts/lib/(install|common)\.sh$|tests/install-smoke\.sh$|\.github/workflows/smoke-test\.yml)'; then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::No install-arch/test changes — skipping install-arch smoke run."
+          fi
+
+      # Disk tooling for the real partition/LVM/btrfs operations.
+      - name: Install disk tools
+        if: steps.changed.outputs.relevant == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y parted lvm2 btrfs-progs dosfstools
+
+      # Needs root for loop devices, LVM and mount; operates only on its own
+      # loop-backed images (see tests/install-smoke.sh).
+      - name: install-arch loopback smoke
+        if: steps.changed.outputs.relevant == 'true'
+        run: sudo tests/install-smoke.sh

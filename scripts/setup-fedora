@@ -770,6 +770,8 @@ main() {
 
     _setup_docker "$USERNAME" "${docker_packages[@]}"
 
+    _setup_virtualization "$USERNAME" "${virt_packages[@]}"
+
     _setup_finalize
 }
 
