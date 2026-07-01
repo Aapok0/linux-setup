@@ -34,18 +34,19 @@ jobs:
           fetch-depth: 0 # need the base commit to diff against
 
       # Short-circuit: only the docker run is gated, the job itself always
-      # reports. Relevant = scripts/, tests/, setup, or workflow files.
+      # reports. Relevant = setup scripts, their libs/vars/config, test harness.
       - name: Detect relevant changes
         id: changed
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           files="$(git diff --name-only "$base" HEAD)"
           printf 'changed files:\n%s\n' "$files"
-          if printf '%s\n' "$files" | grep -qE '^(scripts/|tests/|setup$|\.github/workflows/)'; then
+          if printf '%s\n' "$files" | grep -qE \
+            '^(scripts/setup-|scripts/lib/common\.sh|vars/|config/|tests/(smoke|run|stub)\.sh|setup$|\.github/workflows/smoke-test\.yml)'; then
             echo "relevant=true" >>"$GITHUB_OUTPUT"
           else
             echo "relevant=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::No script/test/CI changes — skipping docker smoke run."
+            echo "::notice::No setup-script/test changes — skipping docker smoke run."
           fi
 
       - name: Smoke test
@@ -60,17 +61,19 @@ jobs:
         with:
           fetch-depth: 0 # need the base commit to diff against
 
+      # Relevant = install-arch and its shared libs, plus the loopback harness.
       - name: Detect relevant changes
         id: changed
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           files="$(git diff --name-only "$base" HEAD)"
           printf 'changed files:\n%s\n' "$files"
-          if printf '%s\n' "$files" | grep -qE '^(scripts/|tests/|setup$|\.github/workflows/)'; then
+          if printf '%s\n' "$files" | grep -qE \
+            '^(scripts/install-arch$|scripts/lib/(install|common)\.sh$|tests/install-smoke\.sh$|\.github/workflows/smoke-test\.yml)'; then
             echo "relevant=true" >>"$GITHUB_OUTPUT"
           else
             echo "relevant=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::No script/test/CI changes — skipping install-arch smoke run."
+            echo "::notice::No install-arch/test changes — skipping install-arch smoke run."
           fi
 
       # Disk tooling for the real partition/LVM/btrfs operations.
