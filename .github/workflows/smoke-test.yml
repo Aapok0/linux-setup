@@ -42,7 +42,7 @@ jobs:
           files="$(git diff --name-only "$base" HEAD)"
           printf 'changed files:\n%s\n' "$files"
           if printf '%s\n' "$files" | grep -qE \
-            '^(scripts/setup-|scripts/lib/common\.sh|vars/|config/|tests/(smoke|run|stub)\.sh|setup$|\.github/workflows/smoke-test\.yml)'; then
+            '^(scripts/setup-.*\.sh|scripts/lib/common\.sh|vars/|config/|tests/(run|container/)|setup$|\.github/workflows/smoke-test\.yml)'; then
             echo "relevant=true" >>"$GITHUB_OUTPUT"
           else
             echo "relevant=false" >>"$GITHUB_OUTPUT"
@@ -51,7 +51,7 @@ jobs:
 
       - name: Smoke test
         if: steps.changed.outputs.relevant == 'true'
-        run: tests/run.sh smoke ${{ matrix.distro }}
+        run: tests/run container smoke ${{ matrix.distro }}
 
   arch-install:
     name: arch install (loopback)
@@ -69,7 +69,7 @@ jobs:
           files="$(git diff --name-only "$base" HEAD)"
           printf 'changed files:\n%s\n' "$files"
           if printf '%s\n' "$files" | grep -qE \
-            '^(scripts/install-arch$|scripts/lib/(install|common)\.sh$|tests/install-smoke\.sh$|\.github/workflows/smoke-test\.yml)'; then
+            '^(scripts/install-arch\.sh$|scripts/lib/(install|common)\.sh$|tests/(run|install/)|\.github/workflows/smoke-test\.yml)'; then
             echo "relevant=true" >>"$GITHUB_OUTPUT"
           else
             echo "relevant=false" >>"$GITHUB_OUTPUT"
@@ -84,7 +84,7 @@ jobs:
           sudo apt-get install -y parted lvm2 btrfs-progs dosfstools
 
       # Needs root for loop devices, LVM and mount; operates only on its own
-      # loop-backed images (see tests/install-smoke.sh).
+      # loop-backed images (see tests/install/loopback-smoke.sh).
       - name: install-arch loopback smoke
         if: steps.changed.outputs.relevant == 'true'
-        run: sudo tests/install-smoke.sh
+        run: sudo tests/run install loopback

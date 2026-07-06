@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # In-container test harness for the setup-* scripts. Runs UNPRIVILEGED: every
 # destructive/network command is shimmed (see stub.sh) so the real scripts can
-# execute end to end. Meant to run inside a distro container (see tests/run.sh).
+# execute end to end. Meant to run inside a distro container (see tests/run).
 #
-# Usage (inside container):  bash /repo/tests/smoke.sh <arch|debian|fedora> [source|smoke]
+# Usage (inside container):  bash /repo/tests/container/smoke.sh <arch|debian|fedora> [source|smoke]
 #
 # Tiers:
 #   source  Source lib/common.sh + vars/<distro>-vars, assert key fns exist.
@@ -38,7 +38,7 @@ mkdir -p /opt/stub
 for c in sudo nala apt-get apt-key dnf paru pacman gpg curl wget systemctl \
     hostnamectl visudo just stow lsb_release findmnt flatpak snap \
     gsettings fc-cache dconf ssh-keygen git python3 make pipx npm cargo; do
-    ln -sf "$REPO/tests/stub.sh" "/opt/stub/$c"
+    ln -sf "$REPO/tests/container/stub.sh" "/opt/stub/$c"
 done
 export PATH="/opt/stub:$PATH"
 : >"$STUB_LOG"
@@ -70,11 +70,11 @@ case "$tier" in
         # Repo is mounted read-only; copy to a writable tree to run.
         cp -a "$REPO" /work
         cd /work || exit 1
-        echo "--- scripts/setup-$distro testuser (stdin=yes, 120s cap) ---"
+        echo "--- scripts/setup-${distro}.sh testuser (stdin=yes, 120s cap) ---"
         rc=0
         # Feed prompts via process substitution (not a pipe) so 'yes' getting
         # SIGPIPE cannot pollute the captured exit code.
-        timeout 120 bash "scripts/setup-$distro" testuser < <(yes) >/tmp/setup.out 2>&1 || rc=$?
+        timeout 120 bash "scripts/setup-${distro}.sh" testuser < <(yes) >/tmp/setup.out 2>&1 || rc=$?
         echo "=== last 15 log lines ==="
         tail -15 /tmp/setup.out
         echo "=== privileged/external calls captured ==="

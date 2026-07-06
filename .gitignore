@@ -1,2 +1,5 @@
 # Ignore logs directory
 logs/
+
+# Vagrant local state
+.vagrant/

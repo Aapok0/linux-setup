@@ -16,6 +16,6 @@ Fedora updates can regenerate that file and drop the line, which leaves the syst
 
 The grub.d script runs after `grub2-mkconfig`. The path unit watches `/boot/efi/EFI/fedora/` and re-runs the check when `grub.cfg` is replaced outside `grub2-mkconfig`.
 
-`setup-fedora` installs these only when root is LUKS-encrypted and `/boot` is not on a separate unencrypted partition.
+`setup-fedora.sh` installs these only when root is LUKS-encrypted and `/boot` is not on a separate unencrypted partition.
 
 Adapted from [SysGuides sysguides-grub-cryptomount-fix](https://github.com/SysGuides/sysguides-grub-cryptomount-fix) (Madhu Desai / [sysguides.com](https://sysguides.com)).

@@ -11,6 +11,6 @@ The `snapper` RPM provides the CLI, configs, and timers only — **not** these d
 | `snapper-gui-pkg.sh` | Records first package name for GUI transaction descriptions |
 | `snapper-wal-checkpoint.sh` | Flushes libdnf5 SQLite WAL before POST snapshot |
 
-`setup-fedora` installs `*.sh` → `/usr/local/bin/` and `snapper.actions` → `/etc/dnf/libdnf5-plugins/actions.d/`.
+`setup-fedora.sh` installs `*.sh` → `/usr/local/bin/` and `snapper.actions` → `/etc/dnf/libdnf5-plugins/actions.d/`.
 
 Shell scripts adapted from [SysGuides sysguides-snapper-fedora](https://github.com/SysGuides/sysguides-snapper-fedora) (Madhu Desai / [sysguides.com](https://sysguides.com)).

@@ -34,18 +34,29 @@ jobs:
           shellcheck -x \
             setup \
             install \
-            scripts/setup-arch \
-            scripts/setup-debian \
-            scripts/setup-fedora \
-            scripts/install-arch \
-            scripts/install-arch-backup \
-            scripts/install-arch-reinstall \
+            tests/run \
+            scripts/setup-arch.sh \
+            scripts/setup-debian.sh \
+            scripts/setup-fedora.sh \
+            scripts/install-arch.sh \
+            scripts/install-arch-backup.sh \
+            scripts/install-arch-reinstall.sh \
             scripts/lib/common.sh \
             scripts/lib/install.sh \
-            tests/run.sh \
-            tests/smoke.sh \
-            tests/stub.sh \
-            tests/install-smoke.sh \
+            tests/container/run-host.sh \
+            tests/container/smoke.sh \
+            tests/container/stub.sh \
+            tests/install/loopback-smoke.sh \
+            tests/install/arch-vm.sh \
+            tests/vm/run.sh \
+            tests/vm/provision.sh \
+            tests/vm/assert.sh \
+            tests/manual/lib/common.sh \
+            tests/manual/arch-install-vm-create.sh \
+            tests/manual/arch-install-vm-run.sh \
+            tests/manual/setup-vm-create.sh \
+            tests/manual/setup-vm-run.sh \
+            tests/manual/preflight.sh \
             config/fedora/snapper/*.sh \
             config/fedora/grub-cryptomount/99_cryptomount_check \
             vars/arch-vars \
@@ -70,18 +81,29 @@ jobs:
           /tmp/shfmt -d -i 4 -ci \
             setup \
             install \
+            tests/run \
             scripts/lib/common.sh \
             scripts/lib/install.sh \
-            scripts/install-arch \
-            scripts/install-arch-backup \
-            scripts/install-arch-reinstall \
-            scripts/setup-arch \
-            scripts/setup-debian \
-            scripts/setup-fedora \
-            tests/run.sh \
-            tests/smoke.sh \
-            tests/stub.sh \
-            tests/install-smoke.sh \
+            scripts/install-arch.sh \
+            scripts/install-arch-backup.sh \
+            scripts/install-arch-reinstall.sh \
+            scripts/setup-arch.sh \
+            scripts/setup-debian.sh \
+            scripts/setup-fedora.sh \
+            tests/container/run-host.sh \
+            tests/container/smoke.sh \
+            tests/container/stub.sh \
+            tests/install/loopback-smoke.sh \
+            tests/install/arch-vm.sh \
+            tests/vm/run.sh \
+            tests/vm/provision.sh \
+            tests/vm/assert.sh \
+            tests/manual/lib/common.sh \
+            tests/manual/arch-install-vm-create.sh \
+            tests/manual/arch-install-vm-run.sh \
+            tests/manual/setup-vm-create.sh \
+            tests/manual/setup-vm-run.sh \
+            tests/manual/preflight.sh \
             config/fedora/snapper/*.sh \
             config/fedora/grub-cryptomount/99_cryptomount_check \
             vars/arch-vars \

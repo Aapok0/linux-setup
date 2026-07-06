@@ -25,11 +25,11 @@ The setup script detects (or accepts as argument) whether the system is Arch, De
 
 Setup scripts record errors in a counter (`SETUP_ERRORS`) and exit non-zero at the end if any step failed; interactive prompts are not aborted by `set -e`.
 
-Setup scripts are safe to re-run: package installs skip already-installed packages, and shared helpers in `scripts/lib/common.sh` guard groups, systemd units, multilib, and pip user installs. System upgrades (`paru -Syu`, `apt upgrade`, `dnf upgrade`) still run each time.
+Setup scripts are safe to re-run: package installs skip already-installed packages, and shared helpers in `scripts/lib/common.sh` guard groups, systemd units, multilib, pip user installs, systemd-resolved (including existing `/etc/resolv.conf` symlinks), and Snapper access settings (only empty `ALLOW_USERS` / non-`yes` `SYNC_ACL` are filled in; customized values and `TIMELINE_CREATE` on existing home configs are left alone). System upgrades (`paru -Syu`, `apt upgrade`, `dnf upgrade`) still run each time.
 
 Output is logged to `logs/<timestamp>_setup.log` (absolute path under repo root).
 
-**Logging:** All scripts source `scripts/lib/common.sh` for shared logging (`INFO`, `OUT`, `WARN`, `ERROR`, `RUN` levels with timestamps). Logs are written to `logs/` via `tee` regardless of current working directory.
+**Logging:** All scripts source `scripts/lib/common.sh` for shared logging (`INFO`, `OUT`, `WARN`, `ERROR`, `RUN` levels with timestamps) and post-install setup helpers. Arch install orchestration lives in `scripts/lib/install.sh`. Logs are written to `logs/` via `tee` regardless of current working directory.
 
 ## Repository structure
 
@@ -40,13 +40,17 @@ Output is logged to `logs/<timestamp>_setup.log` (absolute path under repo root)
 │   ├── lib/
 │   │   ├── common.sh           # Shared logging and setup helpers
 │   │   └── install.sh          # Shared Arch install/reinstall helpers
-│   ├── setup-arch              # Full Arch (KDE) setup
-│   ├── setup-debian            # Full Debian (KDE) setup
-│   ├── setup-fedora            # Full Fedora (KDE) setup
-│   ├── setup-arch-i3           # Older i3-based Arch setup (unused)
-│   ├── install-arch            # Arch Linux fresh install (live ISO)
-│   ├── install-arch-reinstall  # Arch reinstall (preserves /home)
-│   └── install-arch-backup     # Arch reinstall config backup (live system)
+│   ├── setup-arch.sh           # Full Arch (KDE) setup
+│   ├── setup-debian.sh         # Full Debian (KDE) setup
+│   ├── setup-fedora.sh         # Full Fedora (KDE) setup
+│   ├── install-arch.sh         # Arch Linux fresh install (live ISO)
+│   ├── install-arch-reinstall.sh  # Arch reinstall (preserves /home)
+│   └── install-arch-backup.sh  # Arch reinstall config backup (live system)
+├── tests/
+│   ├── run                     # Test entrypoint (container / install / vm)
+│   ├── container/              # Stubbed setup-* smoke (CI)
+│   ├── install/                # install-arch loopback + ISO VM harness
+│   └── vm/                     # Vagrant headless setup-* smoke
 ├── vars/
 │   ├── arch-vars               # Package lists for Arch (pacman & paru/AUR)
 │   ├── debian-vars             # Package lists for Debian (apt & extras)
@@ -154,28 +158,37 @@ checks run in CI (`.github/workflows/lint.yml`, pinned `shellcheck`/`shfmt`).
 ### Lint & format
 
 ```bash
-bash -n scripts/*                     # quick parse check, no tools needed
-shellcheck -x setup install scripts/setup-* scripts/install-arch* scripts/lib/*.sh
-shfmt -d -i 4 -ci setup install scripts/setup-* scripts/install-arch* scripts/lib/*.sh
+bash -n scripts/*.sh                  # quick parse check, no tools needed
+shellcheck -x setup install tests/run scripts/*.sh scripts/lib/*.sh tests/**/*.sh
+shfmt -d -i 4 -ci setup install tests/run scripts/*.sh scripts/lib/*.sh tests/**/*.sh
 ```
 
 Repo-specific `shellcheck` disables (cross-file globals, sourced helpers, the
-`install-arch`/`install.sh` call graph) are documented in `.shellcheckrc`.
+`install-arch.sh`/`install.sh` call graph) are documented in `.shellcheckrc`.
+
+### Test layout
+
+```
+tests/run                 # entrypoint (no extension)
+tests/container/          # stubbed setup-* smoke (CI)
+tests/install/            # install-arch loopback + libvirt ISO harness
+tests/vm/                 # Vagrant headless setup-* smoke (local/self-hosted)
+```
 
 ### Container smoke tests
 
-`tests/run.sh` runs each `setup-<distro>` script end to end inside a throwaway
-container with every privileged/network command stubbed (`tests/stub.sh`). It
-catches what static analysis cannot: unbound variables, bad substitutions,
-runtime control flow, wrong flags, distro-detection branches, and the order of
-privileged calls.
+`tests/run container smoke` runs each `setup-<distro>.sh` script end to end inside
+a throwaway container with every privileged/network command stubbed
+(`tests/container/stub.sh`). It catches what static analysis cannot: unbound
+variables, bad substitutions, runtime control flow, wrong flags,
+distro-detection branches, and the order of privileged calls.
 
 ```bash
-tests/run.sh                       # smoke all three distros (uses docker)
-tests/run.sh smoke debian          # a single distro
-tests/run.sh source                # lighter tier: source libs + vars, assert key fns
-RUNTIME="sudo docker" tests/run.sh # rootful docker needs sudo (or join the docker group)
-RUNTIME=podman tests/run.sh        # podman works too
+tests/run container smoke            # all three distros (uses docker)
+tests/run container smoke debian       # one distro
+tests/run container source             # lighter tier: source libs + vars, assert key fns
+RUNTIME="sudo docker" tests/run container smoke
+RUNTIME=podman tests/run container smoke
 ```
 
 - No privilege is needed for the setup smoke — the stubs turn `sudo`,
@@ -186,19 +199,19 @@ RUNTIME=podman tests/run.sh        # podman works too
 
 ### Arch install testing
 
-`tests/install-smoke.sh` runs the real `install-arch` against loop-backed image
-files, so partitioning, LVM, btrfs subvolumes and mounting are exercised **for
-real** — only the chroot/Arch/network commands that can't run on a generic host
-are stubbed (`arch-chroot`, `pacstrap`, `genfstab`, `reflector`, `reboot`,
+`tests/run install loopback` runs the real `install-arch.sh` against loop-backed
+image files, so partitioning, LVM, btrfs subvolumes and mounting are exercised
+**for real** — only the chroot/Arch/network commands that can't run on a generic
+host are stubbed (`arch-chroot`, `pacstrap`, `genfstab`, `reflector`, `reboot`,
 `ping`). It needs root for loop devices, LVM and mounts, and only ever touches
 its own throwaway images and uniquely-named volume groups (`archsmoke*`).
 
 ```bash
-sudo tests/install-smoke.sh              # all scenarios
-sudo tests/install-smoke.sh partition    # swap partition, root=all, separate /home
-sudo tests/install-smoke.sh lvm          # swap as an LVM logical volume, root=all
-sudo tests/install-smoke.sh sized        # swap partition + explicit root size
-sudo tests/install-smoke.sh samedevice   # root + home on one device, both sized
+sudo tests/run install loopback              # all scenarios
+sudo tests/run install loopback partition    # swap partition, root=all, separate /home
+sudo tests/run install loopback lvm          # swap as an LVM logical volume, root=all
+sudo tests/run install loopback sized        # swap partition + explicit root size
+sudo tests/run install loopback samedevice   # root + home on one device, both sized
 ```
 
 Host tools required: `parted lvm2 btrfs-progs dosfstools e2fsprogs util-linux`.
@@ -215,6 +228,106 @@ Coverage and limits:
 
 CI runs this on every PR that touches scripts/tests/workflows (the
 `arch install (loopback)` job in `.github/workflows/smoke-test.yml`).
+
+### VM smoke tests (setup-*)
+
+Automated **headless** provisioning of `setup-debian.sh`, `setup-fedora.sh`, and
+`setup-arch.sh` inside libvirt VMs via Vagrant. Exercises real package managers,
+`just install`, docker, and the virt stack — not KDE, flatpaks, or gaming.
+Intended for local or self-hosted pre-merge checks (nested virt, long runtime;
+not GitHub-hosted CI).
+
+#### Prerequisites
+
+```bash
+# Nested virtualization enabled on the host
+# Fedora/Debian: distro package (also installed by setup-* virt_packages)
+sudo dnf install vagrant vagrant-libvirt      # Fedora
+sudo apt install vagrant vagrant-libvirt      # Debian
+# Arch: plugin only (not in repos)
+sudo pacman -S vagrant
+vagrant plugin install vagrant-libvirt
+```
+
+#### Basic flow (first run)
+
+```bash
+# 1. Create VM from cloud box, run headless setup, run assert checks (~15–45 min)
+tests/run vm test debian # or fedora/arch
+
+# Equivalent steps:
+vagrant up debian --provision          # downloads box, runs tests/vm/provision.sh
+vagrant ssh debian -c 'bash /vagrant/tests/vm/assert.sh'
+```
+
+What happens:
+
+1. **Host:** `vagrant up` boots a minimal cloud image (no desktop).
+2. **Provisioner** (`tests/vm/provision.sh`) sets `LINUX_SETUP_NONINTERACTIVE=1` and
+   `LINUX_SETUP_HEADLESS=1`, pre-seeds git config, runs `scripts/setup-<distro>.sh`.
+3. **Assert** (`tests/vm/assert.sh`) checks a small set of binaries/paths and that
+   the setup log has no `SETUP_ERRORS` summary.
+
+Environment flags (set automatically by `tests/vm/provision.sh`):
+
+| Variable | Effect |
+|----------|--------|
+| `LINUX_SETUP_NONINTERACTIVE=1` | Auto-answer wheel-sudo (yes), skip hostname/git prompts when pre-seeded |
+| `LINUX_SETUP_HEADLESS=1` | Skip KDE/gaming/flatpak/VPN/pyenv/nvm; keep core packages, dotfiles, docker, virt |
+
+Optional overrides: `LINUX_SETUP_GIT_NAME`, `LINUX_SETUP_GIT_EMAIL`, `LINUX_SETUP_HOSTNAME`.
+
+#### Snapshot flow (iterating without full reprovision)
+
+After a **passing** run, save a checkpoint; restore it when the VM has been mutated.
+
+```bash
+# 2. Save baseline (once, after tests/run vm test debian succeeds)
+tests/run vm snapshot-save clean debian
+
+# 3. Iterate: reprovision or assert only
+tests/run vm provision debian
+tests/run vm assert debian
+
+# 4. Reset disk to the saved baseline (~minutes, not a full reinstall)
+tests/run vm snapshot-restore clean debian
+```
+
+| Command | What it does | When to use |
+|---------|----------------|-------------|
+| `tests/run vm test` | `up --provision` + assert | First run, or after `destroy` |
+| `tests/run vm provision` | Re-run shell provisioner only | Changed setup script / provisioner |
+| `tests/run vm assert` | SSH assert script only | Quick check after manual tweaks |
+| `tests/run vm snapshot-save clean` | `vagrant snapshot save` | After a known-good state |
+| `tests/run vm snapshot-restore clean` | `vagrant snapshot restore` | Undo package/config drift |
+| `tests/run vm destroy` | Delete VM and disks | Start completely fresh |
+
+**Destroy vs snapshot:** `destroy` + `tests/run vm test` always works — re-downloads
+nothing if the box is cached, but re-runs the full provisioner (upgrade, dotfiles
+clone, `just install`, docker, virt). That is the reliable clean-room path.
+Snapshots skip the expensive middle: restore rewinds the disk to the saved point
+so you can re-provision or re-assert without reinstalling from scratch. They are
+optional; provider support required; not used in CI.
+
+#### Full desktop VM flow
+
+Full desktop / login verification (SPICE, manual checklist):
+[instructions/tests/](instructions/tests/).
+
+### install-arch VM (local boot validation)
+
+Loopback smoke (`tests/install/loopback-smoke.sh`) exercises disk logic; a
+libvirt VM adds real ISO boot, pacstrap, and bootloader validation:
+
+```bash
+export ARCH_ISO=/path/to/archlinux.iso
+tests/run install vm create
+tests/run install vm console
+# on live ISO: clone repo, then:
+sudo LINUX_SETUP_LOGGING=1 ./install arch < tests/install/arch-vm.answers
+```
+
+See `tests/run install vm help` for `start`, `destroy`, and `answers`.
 
 ## Post-setup
 
@@ -245,4 +358,3 @@ These steps are also printed by the script on completion:
 
 - **`apps.md`** — Several apps still marked as not done (app launcher, tiling WM, Docker, RDP, mouse/keyboard tools, etc.).
 - Configurable package selection (interactive options)
-- Clean package caches at the end?

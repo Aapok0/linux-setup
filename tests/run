@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Unified test entrypoint for linux-setup.
+#
+# Usage:
+#   tests/run container [source|smoke] [distro...]
+#   tests/run install loopback [scenario...]
+#   tests/run install vm <create|start|console|answers|destroy|help>
+#   tests/run vm <test|up|provision|assert|snapshot-save|snapshot-restore|destroy|status> [distro...]
+#
+# Environment:
+#   RUNTIME   docker command (default: docker), e.g. RUNTIME="sudo docker"
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+_usage() {
+    cat <<EOF
+Usage:
+  tests/run container [source|smoke] [distro...]
+  tests/run install loopback [scenario...]
+  tests/run install vm <create|start|console|answers|destroy|help>
+  tests/run vm <test|up|provision|assert|snapshot-save|snapshot-restore|destroy|status> [distro...]
+
+distro: arch | debian | fedora (default: all three for container/vm)
+EOF
+}
+
+case "${1:-}" in
+    -h | --help | help)
+        _usage
+        exit 0
+        ;;
+    container)
+        shift
+        exec bash "$ROOT/tests/container/run-host.sh" "$@"
+        ;;
+    install)
+        shift
+        case "${1:-loopback}" in
+            loopback)
+                shift || true
+                exec sudo bash "$ROOT/tests/install/loopback-smoke.sh" "$@"
+                ;;
+            vm)
+                shift
+                exec bash "$ROOT/tests/install/arch-vm.sh" "$@"
+                ;;
+            *)
+                echo "tests/run: unknown install target '${1:-}' (use loopback|vm)" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    vm)
+        shift
+        exec bash "$ROOT/tests/vm/run.sh" "$@"
+        ;;
+    "")
+        _usage
+        exit 2
+        ;;
+    *)
+        echo "tests/run: unknown command '$1'" >&2
+        _usage
+        exit 2
+        ;;
+esac

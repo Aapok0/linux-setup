@@ -16,6 +16,7 @@ source "${REPO_ROOT}/vars/arch-vars"
 USERNAME=$1
 SETUP_UFW=true
 SETUP_BTRFS_SNAPPER=true
+_linux_setup_apply_headless_defaults
 
 _pkg_is_installed() {
     paru -Qs "$1" | grep -q "local.*$1 "
@@ -43,6 +44,21 @@ _install_packages() {
         _out "Installing $pkg"
         _echo_run paru --skipreview -S "$pkg"
     done
+}
+
+_pacman_multilib_enabled() {
+    [ -f /etc/pacman.conf ] &&
+        grep -A1 '^\[multilib\]' /etc/pacman.conf | grep -q '^Include = '
+}
+
+_ensure_pacman_multilib() {
+    if _pacman_multilib_enabled; then
+        _info "multilib repository already enabled"
+        return 0
+    fi
+
+    _info "Enabling multilib repository..."
+    _echo_run sudo sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
 }
 
 # ---------------------------------------------------------------------------
@@ -91,6 +107,9 @@ _setup_snapper_config_for_mount() {
     local config="$1"
     local mount_path="$2"
     local snapshots_mount="$3"
+    local -n created_ref="${4:-_snapper_config_created_unused}"
+
+    created_ref=false
 
     if _snapper_config_exists "$config"; then
         _info "Snapper config '${config}' already present"
@@ -116,20 +135,25 @@ _setup_snapper_config_for_mount() {
     _echo_run sudo mkdir -p "$snapshots_mount"
     _echo_run sudo mount -a
     _echo_run sudo chmod 750 "$snapshots_mount"
+    created_ref=true
 }
 
 _setup_snapper_configs() {
+    local home_created=false
+
     _setup_snapper_config_for_mount root / /.snapshots
 
     if _is_btrfs /home; then
-        _setup_snapper_config_for_mount home /home /home/.snapshots
+        _setup_snapper_config_for_mount home /home /home/.snapshots home_created
     fi
 
-    _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
+    _ensure_snapper_access root "$USERNAME"
 
     if _is_btrfs /home && _snapper_config_exists home; then
-        _echo_run sudo snapper -c home set-config \
-            "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes TIMELINE_CREATE=no
+        _ensure_snapper_access home "$USERNAME"
+        if $home_created; then
+            _apply_snapper_home_timeline home
+        fi
     fi
 }
 
@@ -317,45 +341,46 @@ main() {
     _info "Running full dotfiles setup via justfile (installs packages, stows configs, sets up shell, installs font)..."
     _echo_run just install
 
-    _info "Installing additional AUR packages..."
-    _install_packages "basic packages (AUR)" "${basic_packages_aur[@]}"
-
     _info "Setting up git user configuration..."
     _setup_git_config
 
-    _info "Installing KDE and additional apps..."
-    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
-    _install_packages "apps" "${apps[@]}" "${apps_aur[@]}"
-    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_aur[@]}"
+    if ! _linux_setup_headless; then
+        _info "Installing additional AUR packages..."
+        _install_packages "basic packages (AUR)" "${basic_packages_aur[@]}"
 
-    _info "Doing initial setup for nordvpn..."
-    if [ -f "/etc/resolv.conf.bak" ]; then
-        _info "Systemd-resolved already setup"
-    else
+        _info "Installing KDE and additional apps..."
+        _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
+        _install_packages "apps" "${apps[@]}" "${apps_aur[@]}"
+        _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_aur[@]}"
+
+        _info "Doing initial setup for nordvpn..."
         _pkg_is_installed "openresolv" && _echo_run paru -R openresolv
-        _echo_run sudo systemctl enable --now systemd-resolved.service
-        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
-        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-    fi
-    _ensure_group nordvpn
-    _ensure_user_in_group "$USERNAME" nordvpn
-    _ensure_systemd_enabled_now nordvpnd.service
+        _setup_systemd_resolved
+        _ensure_group nordvpn
+        _ensure_user_in_group "$USERNAME" nordvpn
+        _ensure_systemd_enabled_now nordvpnd.service
 
-    _setup_tailscale
+        _setup_tailscale
+
+        if command -v steamtinkerlaunch &>/dev/null; then
+            _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+            _echo_run steamtinkerlaunch compat add
+        else
+            _warn "steamtinkerlaunch not installed; skipping compat add"
+        fi
+
+        _install_ghostty_desktop_override
+    else
+        _info "Headless mode: skipping AUR desktop/gaming/VPN stacks"
+        _info "Doing initial setup for systemd-resolved (for DNS)..."
+        _pkg_is_installed "openresolv" && _echo_run paru -R openresolv
+        _setup_systemd_resolved
+    fi
 
     _setup_docker "$USERNAME" "${docker_packages[@]}"
 
     _setup_virtualization "$USERNAME" "${virt_packages[@]}"
     _install_vagrant_libvirt_plugin
-
-    if command -v steamtinkerlaunch &>/dev/null; then
-        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
-        _echo_run steamtinkerlaunch compat add
-    else
-        _warn "steamtinkerlaunch not installed; skipping compat add"
-    fi
-
-    _install_ghostty_desktop_override
 
     _setup_finalize
 }

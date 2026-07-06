@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Loopback "disk" smoke test for scripts/install-arch.
+# Loopback "disk" smoke test for scripts/install-arch.sh.
 #
 # Runs the REAL installer against loop-backed image files, so partitioning,
 # LVM, btrfs subvolumes and mounting are exercised for real — everything short
@@ -7,10 +7,11 @@
 # commands that can't run on a generic host are stubbed (arch-chroot, pacstrap,
 # genfstab, reflector, reboot, ping); every disk operation is genuine.
 #
-# MUST run as root (loop devices, LVM, mount):  sudo tests/install-smoke.sh
+# MUST run as root (loop devices, LVM, mount):  sudo tests/run install loopback
 #
 # Usage:
-#   sudo tests/install-smoke.sh [scenario...]
+#   sudo tests/run install loopback [scenario...]
+#   sudo tests/install/loopback-smoke.sh [scenario...]
 #     scenario  partition | lvm | sized | samedevice   (default: all)
 #                 partition  = swap partition, root=all, separate /home
 #                 lvm        = swap as an LVM logical volume, root=all
@@ -26,11 +27,11 @@
 
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    echo "install-smoke: must run as root (loop devices/LVM/mount). Use: sudo $0" >&2
+    echo "loopback-smoke: must run as root (loop devices/LVM/mount). Use: sudo tests/run install loopback" >&2
     exit 2
 fi
 
@@ -119,7 +120,7 @@ check_host_tools() {
         _have "$cmd" || missing+=("$cmd")
     done
     if [ ${#missing[@]} -gt 0 ]; then
-        echo "install-smoke: missing host tools: ${missing[*]}" >&2
+        echo "loopback-smoke: missing host tools: ${missing[*]}" >&2
         echo "  install: parted lvm2 btrfs-progs dosfstools e2fsprogs util-linux" >&2
         exit 2
     fi
@@ -180,7 +181,7 @@ run_scenario() {
             home_size=6G
             ;;
         *)
-            echo "install-smoke: unknown scenario '$scenario' (use partition|lvm|sized|samedevice)" >&2
+            echo "loopback-smoke: unknown scenario '$scenario' (use partition|lvm|sized|samedevice)" >&2
             return 2
             ;;
     esac
@@ -232,7 +233,7 @@ run_scenario() {
         VG_ROOT="$VG_ROOT" \
         VG_HOME="$VG_HOME" \
         PATH="$WORK/stubs:$PATH" \
-        timeout 600 bash scripts/install-arch <"$WORK/answers" >"$WORK/out" 2>&1 || rc=$?
+        timeout 600 bash scripts/install-arch.sh <"$WORK/answers" >"$WORK/out" 2>&1 || rc=$?
 
     echo "=== last 20 log lines ==="
     tail -20 "$WORK/out"
