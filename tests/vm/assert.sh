@@ -33,12 +33,12 @@ if [ -d /vagrant/logs ]; then
         sort -rn | head -1 | cut -d' ' -f2-)
 fi
 if [ -n "$latest" ]; then
-        if grep -q 'Setup finished with' "$latest" 2>/dev/null; then
-            printf '  ✗ setup log reports errors: %s\n' "$latest"
-            missing=1
-        else
-            printf '  ✓ setup log has no SETUP_ERRORS summary (%s)\n' "$latest"
-        fi
+    if grep -q 'Setup finished with' "$latest" 2>/dev/null; then
+        printf '  ✗ setup log reports errors: %s\n' "$latest"
+        missing=1
+    else
+        printf '  ✓ setup log has no SETUP_ERRORS summary (%s)\n' "$latest"
+    fi
 fi
 
 if [ "$missing" -eq 0 ]; then
