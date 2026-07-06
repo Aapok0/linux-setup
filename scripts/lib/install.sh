@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Shared Arch install/reinstall helpers.
 #
-# Source from scripts/install-arch or scripts/install-arch-reinstall:
+# Source from scripts/install-arch.sh or scripts/install-arch-reinstall.sh:
 #   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 #   source "${REPO_ROOT}/scripts/lib/install.sh"
+#
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled
 
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "${_LIB_DIR}/../.." && pwd)}"
@@ -27,6 +32,55 @@ source "${_LIB_DIR}/common.sh"
 : "${HIBERNATION_ENABLED:=false}"
 : "${SWAP_TYPE:=}"
 : "${INSTALL_PRESERVE_HOME:=false}"
+
+# ============================================================================
+# Install orchestration (exit 0/1/2)
+# ============================================================================
+
+_propagate_rc() {
+    local rc=$1
+    local err_msg=${2:-}
+
+    case $rc in
+        0) return 0 ;;
+        2) return 2 ;;
+        *)
+            if [ -n "$err_msg" ]; then
+                _error "$err_msg"
+            fi
+            return 1
+            ;;
+    esac
+}
+
+_run_phase() {
+    local name=$1 rc
+    shift
+
+    _section "Phase: ${name}"
+    _info "Starting phase: ${name}"
+    "$@"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        _info "Phase completed: ${name}"
+    fi
+    _propagate_rc $rc "${name} failed"
+}
+
+_exit_on_rc() {
+    local rc=$1
+
+    case $rc in
+        0) return 0 ;;
+        2)
+            _info "Installation cancelled by user. Exiting."
+            exit 0
+            ;;
+        *)
+            exit 1
+            ;;
+    esac
+}
 
 # ============================================================================
 # Tool checks

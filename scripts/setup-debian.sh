@@ -15,6 +15,7 @@ init_logging "setup"
 source "${REPO_ROOT}/vars/debian-vars"
 USERNAME=$1
 SETUP_UFW=true
+_linux_setup_apply_headless_defaults
 
 _pkg_is_installed() {
     dpkg -l | grep -q "^ii.*$1"
@@ -161,79 +162,77 @@ main() {
     _info "Setting up git user configuration..."
     _setup_git_config
 
-    _info "Installing KDE and additional apps..."
-    _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
-    _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
-    _install_ghostty
-    _install_ghostty_desktop_override
-    _install_cursor
-    _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
+    if ! _linux_setup_headless; then
+        _info "Installing KDE and additional apps..."
+        _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_extra[@]}"
+        _install_packages "applications" "${apps[@]}" "${apps_extra[@]}"
+        _install_ghostty
+        _install_ghostty_desktop_override
+        _install_cursor
+        _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_extra[@]}"
 
-    if command -v steamtinkerlaunch &>/dev/null; then
-        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
-        _echo_run steamtinkerlaunch compat add
+        if command -v steamtinkerlaunch &>/dev/null; then
+            _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+            _echo_run steamtinkerlaunch compat add
+        else
+            _warn "steamtinkerlaunch not installed; skipping compat add"
+        fi
+
+        _info "Installing extra tools via pip..."
+        _install_pip_user_packages "${basic_packages_pip[@]}"
+
+        _info "Installing pyenv for Python version management..."
+        if ! command -v pyenv &>/dev/null; then
+            _info "Cloning pyenv..."
+            _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+            _info "Building pyenv..."
+            _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
+            _info "Pyenv installed to ~/.pyenv"
+            _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+            _out '  export PYENV_ROOT="$HOME/.pyenv"'
+            _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
+            _out '  eval "$(pyenv init --path)"'
+            _out '  eval "$(pyenv init -)"'
+        else
+            _info "Pyenv already installed"
+        fi
+
+        _info "Installing nvm for Node version management..."
+        if [ -s "$HOME/.nvm/nvm.sh" ]; then
+            _info "nvm already installed at ~/.nvm"
+        else
+            _info "Downloading and installing nvm..."
+            _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash
+            _info "nvm installed"
+            _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+            _out '  export NVM_DIR="$HOME/.nvm"'
+            _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+            _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+        fi
+
+        _info "Setting up NordVPN..."
+        if ! command -v nordvpn &>/dev/null; then
+            _info "Adding NordVPN repository and installing..."
+            _echo_run curl https://repo.nordvpn.com/gpg/nordvpn_public.asc | sudo apt-key add -
+            _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'
+            _echo_run sudo nala update
+            _install_pkg "nordvpn"
+            _ensure_group nordvpn
+            _ensure_user_in_group "$USERNAME" nordvpn
+            _ensure_systemd_enabled_now nordvpnd.service
+            _info "NordVPN installed and configured"
+            _info "Login with: nordvpn login --token \"<token_from_account_here>\""
+        else
+            _info "NordVPN already installed"
+        fi
+
+        _setup_tailscale
     else
-        _warn "steamtinkerlaunch not installed; skipping compat add"
-    fi
-
-    _info "Installing extra tools via pip..."
-    _install_pip_user_packages "${basic_packages_pip[@]}"
-
-    _info "Installing pyenv for Python version management..."
-    if ! command -v pyenv &>/dev/null; then
-        _info "Cloning pyenv..."
-        _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
-        _info "Building pyenv..."
-        _echo_run cd "$HOME/.pyenv" && src/configure && make -C src
-        _info "Pyenv installed to ~/.pyenv"
-        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-        _out '  export PYENV_ROOT="$HOME/.pyenv"'
-        _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
-        _out '  eval "$(pyenv init --path)"'
-        _out '  eval "$(pyenv init -)"'
-    else
-        _info "Pyenv already installed"
-    fi
-
-    _info "Installing nvm for Node version management..."
-    if [ -s "$HOME/.nvm/nvm.sh" ]; then
-        _info "nvm already installed at ~/.nvm"
-    else
-        _info "Downloading and installing nvm..."
-        _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash
-        _info "nvm installed"
-        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-        _out '  export NVM_DIR="$HOME/.nvm"'
-        _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-        _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+        _info "Headless mode: skipping KDE/apps/gaming/pyenv/nvm/VPN stacks"
     fi
 
     _info "Doing initial setup for systemd-resolved (for DNS)..."
-    if [ -f "/etc/resolv.conf.bak" ]; then
-        _info "systemd-resolved already setup"
-    else
-        _echo_run sudo systemctl enable --now systemd-resolved.service
-        _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
-        _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-    fi
-
-    _info "Setting up NordVPN..."
-    if ! command -v nordvpn &>/dev/null; then
-        _info "Adding NordVPN repository and installing..."
-        _echo_run curl https://repo.nordvpn.com/gpg/nordvpn_public.asc | sudo apt-key add -
-        _echo_run sudo sh -c 'echo "deb https://repo.nordvpn.com/deb/nordvpn/debian stable main" > /etc/apt/sources.list.d/nordvpn.list'
-        _echo_run sudo nala update
-        _install_pkg "nordvpn"
-        _ensure_group nordvpn
-        _ensure_user_in_group "$USERNAME" nordvpn
-        _ensure_systemd_enabled_now nordvpnd.service
-        _info "NordVPN installed and configured"
-        _info "Login with: nordvpn login --token \"<token_from_account_here>\""
-    else
-        _info "NordVPN already installed"
-    fi
-
-    _setup_tailscale
+    _setup_systemd_resolved
 
     _setup_docker "$USERNAME" "${docker_packages[@]}"
 

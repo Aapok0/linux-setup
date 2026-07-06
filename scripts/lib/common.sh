@@ -4,7 +4,14 @@
 # Source from a script under scripts/:
 #   source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 #
-# Exit codes (install-arch):
+# Sections:
+#   1. Logging
+#   2. Setup runtime (headless mode, error counter, init_logging)
+#   3. Interactive prompts
+#   4. Shared setup helpers
+#   5. Snapper helpers (btrfs setup-arch + setup-fedora)
+#
+# Exit codes:
 #   0 - success
 #   1 - error
 #   2 - user cancelled
@@ -59,7 +66,30 @@ _log_cmd_output() {
     return "$rc"
 }
 
+_log_interactive() {
+    _log "RUN" "$* (interactive)"
+}
+
+# ============================================================================
+# Setup runtime
+# ============================================================================
+
 SETUP_ERRORS=0
+
+# When LINUX_SETUP_NONINTERACTIVE=1, prompts use fixed defaults (see _prompt_yes_no).
+# When LINUX_SETUP_HEADLESS=1, setup-* skips desktop/gaming/VPN stacks (default for automated VM smoke).
+_linux_setup_headless() {
+    [ "${LINUX_SETUP_HEADLESS:-}" = "1" ]
+}
+
+_linux_setup_apply_headless_defaults() {
+    _linux_setup_headless || return 0
+    _info "Headless mode enabled (LINUX_SETUP_HEADLESS=1)"
+    SETUP_BTRFS_SNAPPER=false
+    SETUP_GRUB_BTRFS=false
+    SETUP_GRUB_CRYPTOMOUNT=false
+    SETUP_FEDORA_HIBERNATE=false
+}
 
 _setup_record_error() {
     SETUP_ERRORS=$((SETUP_ERRORS + 1))
@@ -85,10 +115,6 @@ _setup_finalize() {
     return 0
 }
 
-_log_interactive() {
-    _log "RUN" "$* (interactive)"
-}
-
 init_logging() {
     local log_basename=$1
     local timestamp
@@ -111,57 +137,26 @@ init_logging() {
 }
 
 # ============================================================================
-# Error handling (install-arch)
+# Interactive prompts
 # ============================================================================
-
-_propagate_rc() {
-    local rc=$1
-    local err_msg=${2:-}
-
-    case $rc in
-        0) return 0 ;;
-        2) return 2 ;;
-        *)
-            if [ -n "$err_msg" ]; then
-                _error "$err_msg"
-            fi
-            return 1
-            ;;
-    esac
-}
-
-_run_phase() {
-    local name=$1 rc
-    shift
-
-    _section "Phase: ${name}"
-    _info "Starting phase: ${name}"
-    "$@"
-    rc=$?
-    if [ $rc -eq 0 ]; then
-        _info "Phase completed: ${name}"
-    fi
-    _propagate_rc $rc "${name} failed"
-}
-
-_exit_on_rc() {
-    local rc=$1
-
-    case $rc in
-        0) return 0 ;;
-        2)
-            _info "Installation cancelled by user. Exiting."
-            exit 0
-            ;;
-        *)
-            exit 1
-            ;;
-    esac
-}
 
 _prompt_yes_no() {
     local prompt_msg=$1
+    local noninteractive_default=${2:-y}
     local response
+
+    if [ "${LINUX_SETUP_NONINTERACTIVE:-}" = "1" ]; then
+        case "$noninteractive_default" in
+            [Yy] | [Yy][Ee][Ss])
+                _out "${prompt_msg} yes (noninteractive)"
+                return 0
+                ;;
+            *)
+                _out "${prompt_msg} no (noninteractive)"
+                return 1
+                ;;
+        esac
+    fi
 
     while true; do
         read -r -p "$prompt_msg" response
@@ -280,20 +275,24 @@ _ensure_systemd_enabled_now() {
     _ensure_systemd_unit "$1" true
 }
 
-_pacman_multilib_enabled() {
-    [ -f /etc/pacman.conf ] &&
-        grep -A1 '^\[multilib\]' /etc/pacman.conf | grep -q '^Include = '
-}
-
-_ensure_pacman_multilib() {
-    if _pacman_multilib_enabled; then
-        _info "multilib repository already enabled"
+_setup_systemd_resolved() {
+    if [ -f "/etc/resolv.conf.bak" ]; then
+        _info "systemd-resolved already setup"
         return 0
     fi
 
-    _info "Enabling multilib repository..."
-    _echo_run sudo sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
+    if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q systemd; then
+        _info "systemd-resolved already in use"
+        _echo_run sudo systemctl enable --now systemd-resolved.service
+        return 0
+    fi
+
+    _echo_run sudo systemctl enable --now systemd-resolved.service
+    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
+    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 }
+
+# --- Identity ---
 
 _pip_user_pkg_installed() {
     python3 -m pip show "$1" &>/dev/null
@@ -324,6 +323,23 @@ _setup_git_config() {
         return 0
     fi
 
+    if [ "${LINUX_SETUP_NONINTERACTIVE:-}" = "1" ]; then
+        git_name=${LINUX_SETUP_GIT_NAME:-}
+        git_email=${LINUX_SETUP_GIT_EMAIL:-}
+        if [ -z "$git_name" ] || [ -z "$git_email" ]; then
+            _info "Skipping git config setup (noninteractive; set LINUX_SETUP_GIT_NAME/EMAIL or pre-seed $config_file)"
+            return 0
+        fi
+        _echo_run mkdir -p "$config_dir"
+        cat >"$config_file" <<EOF
+[user]
+    name = $git_name
+    email = $git_email
+EOF
+        _info "Git user config created at $config_file (noninteractive)"
+        return 0
+    fi
+
     _info "Enter your Git user name or real name (or press Enter to skip):"
     read -r -p "  → " git_name
 
@@ -346,6 +362,27 @@ EOF
 
 _setup_hostname() {
     local hostname current
+
+    if [ "${LINUX_SETUP_NONINTERACTIVE:-}" = "1" ]; then
+        if [ -n "${LINUX_SETUP_HOSTNAME:-}" ]; then
+            current=$(cat /etc/hostname 2>/dev/null || hostname -s 2>/dev/null || echo "")
+            hostname="$LINUX_SETUP_HOSTNAME"
+            if [ "$hostname" = "$current" ]; then
+                _info "Hostname already ${hostname} (noninteractive)"
+                return 0
+            fi
+            _info "Setting hostname to ${hostname} (noninteractive)..."
+            if command -v hostnamectl &>/dev/null; then
+                _echo_run sudo hostnamectl set-hostname "$hostname"
+            else
+                _echo_run sudo tee /etc/hostname >/dev/null <<<"$hostname"
+                _echo_run sudo hostname "$hostname"
+            fi
+        else
+            _info "Skipping hostname setup (noninteractive)"
+        fi
+        return 0
+    fi
 
     current=$(cat /etc/hostname 2>/dev/null || hostname -s 2>/dev/null || echo "")
     _section "System hostname"
@@ -394,7 +431,7 @@ _setup_wheel_nopasswd_sudo() {
 
     if _wheel_sudo_nopasswd_enabled; then
         _info "NOPASSWD for %wheel already configured"
-    elif ! _prompt_yes_no "Enable passwordless sudo for wheel group? (y/n): "; then
+    elif ! _prompt_yes_no "Enable passwordless sudo for wheel group? (y/n): " y; then
         _ensure_user_in_group "$user" wheel
         return 0
     else
@@ -431,6 +468,8 @@ _ensure_ssh_ed25519_key() {
     _echo_run chmod 600 "$key"
     [ -f "${key}.pub" ] && _echo_run chmod 644 "${key}.pub"
 }
+
+# --- Applications ---
 
 _cursor_installed() {
     command -v cursor &>/dev/null && return 0
@@ -528,6 +567,8 @@ _install_cursor() {
     return 0
 }
 
+# --- Services (caller must define _install_packages in setup-*.sh) ---
+
 _setup_docker() {
     local user=$1
     shift
@@ -559,6 +600,8 @@ _setup_virtualization() {
     _info "Manage VMs with virt-manager / virsh; default URI qemu:///system."
 }
 
+# --- Desktop ---
+
 _install_ghostty_desktop_override() {
     [ "$(uname -s)" = "Linux" ] || return 0
     command -v ghostty &>/dev/null || return 0
@@ -574,4 +617,70 @@ _install_ghostty_desktop_override() {
             _warn "Could not enable IBus user service; run: ibus-daemon -drx"
         fi
     fi
+}
+
+# ============================================================================
+# Snapper helpers (setup-arch + setup-fedora btrfs paths)
+# ============================================================================
+
+_snapper_config_value() {
+    local config=$1
+    local key=$2
+    local line
+
+    line=$(sudo snapper -c "$config" get-config "$key" 2>/dev/null) || return 1
+    sed -n "s/^${key}=\"\\(.*\\)\"$/\\1/p" <<<"$line"
+}
+
+_snapper_allow_users_contains() {
+    local allow_users=$1
+    local username=$2
+    local user
+
+    [ -z "$allow_users" ] && return 1
+    for user in ${allow_users//,/ }; do
+        user=${user#\"}
+        user=${user%\"}
+        [ "$user" = "$username" ] && return 0
+    done
+    return 1
+}
+
+_ensure_snapper_access() {
+    local config=$1
+    local username=$2
+    local allow_users sync_acl
+    local updates=()
+
+    allow_users=$(_snapper_config_value "$config" ALLOW_USERS || true)
+    sync_acl=$(_snapper_config_value "$config" SYNC_ACL || true)
+
+    if [ -z "$allow_users" ]; then
+        updates+=("ALLOW_USERS=${username}")
+    elif ! _snapper_allow_users_contains "$allow_users" "$username"; then
+        _info "Snapper config '${config}' ALLOW_USERS already set (${allow_users}); leaving unchanged"
+    else
+        _info "Snapper config '${config}' ALLOW_USERS already includes ${username}"
+    fi
+
+    if [ "$sync_acl" != "yes" ]; then
+        updates+=("SYNC_ACL=yes")
+    else
+        _info "Snapper config '${config}' SYNC_ACL already yes"
+    fi
+
+    if [ ${#updates[@]} -eq 0 ]; then
+        _info "Snapper config '${config}' user access already configured"
+        return 0
+    fi
+
+    _info "Updating Snapper config '${config}': ${updates[*]}"
+    _echo_run sudo snapper -c "$config" set-config "${updates[@]}"
+}
+
+_apply_snapper_home_timeline() {
+    local config=$1
+
+    _info "Setting Snapper config '${config}' TIMELINE_CREATE=no (new home config)"
+    _echo_run sudo snapper -c "$config" set-config TIMELINE_CREATE=no
 }

@@ -1,0 +1,19 @@
+# Answer stream for full manual arch-install VM (partition scenario, reboot yes).
+# Devices: /dev/vda = root (32G), /dev/vdb = home (16G).
+/dev/vda
+/dev/vdb
+1
+n
+all
+all
+yes
+yes
+yes
+n
+testuser
+y
+archvm
+
+3
+5
+y
