@@ -1043,7 +1043,7 @@ Fedora defaults to **zram** swap — it cannot hibernate. You need **disk swap �
 - **Secure Boot disabled** in firmware
 - **SELinux:** setup runs `restorecon` on swap paths; if resume fails with AVC denials, see [Cryptophobia gist](https://gist.github.com/Cryptophobia/e304a04fcb156dd0959fbba6b7a26106) (Feb 2026)
 
-Toggle in `scripts/setup-fedora`: `SETUP_FEDORA_HIBERNATE=false` to skip even when SB is off.
+Toggle in `scripts/setup-fedora.sh`: `SETUP_FEDORA_HIBERNATE=false` to skip even when SB is off.
 
 #### Dual boot with Windows
 
@@ -1079,7 +1079,7 @@ chmod u+x setup scripts/*
 
 `setup-fedora` upgrades the system, enables RPM Fusion, installs packages from `vars/fedora-vars` (KDE, apps, gaming, flatpaks including **VLC**, `fwupd`, `snapper`, **haruna**, …), stows dotfiles via `just install` (which swaps **ffmpeg-free → ffmpeg** for full mpv codecs), configures **hibernation** when Secure Boot is off and disk swap exists (skipped automatically with SB on), and configures NordVPN.
 
-On **btrfs root** it also applies btrfs mount options to `/etc/fstab` and runs Snapper setup (when root is btrfs). Toggle Snapper/grub-btrfs at the top of `scripts/setup-fedora` (`SETUP_BTRFS_SNAPPER`, `SETUP_GRUB_BTRFS`). See [config/fedora/snapper/README.md](../../config/fedora/snapper/README.md) for dnf5 hooks.
+On **btrfs root** it also applies btrfs mount options to `/etc/fstab` and runs Snapper setup (when root is btrfs). Toggle Snapper/grub-btrfs at the top of `scripts/setup-fedora.sh` (`SETUP_BTRFS_SNAPPER`, `SETUP_GRUB_BTRFS`). See [config/fedora/snapper/README.md](../../config/fedora/snapper/README.md) for dnf5 hooks.
 
 On **encrypted root with `/boot` on root** (Option A FDE), it installs the GRUB `cryptomount` auto-fix from [config/fedora/grub-cryptomount/](../../config/fedora/grub-cryptomount/README.md) (`SETUP_GRUB_CRYPTOMOUNT`). Complete the [live-ISO GRUB steps](#after-install--grub-setup-from-live-iso) before first reboot; run `./setup fedora` after Plasma Setup.
 
@@ -1146,7 +1146,7 @@ REPO=~/Workspace/linux-setup
 
 # Mount opts (or let setup-fedora apply: noatime,ssd,compress=zstd:1,space_cache=v2,discard=async,commit=120)
 sudo cp /etc/fstab /etc/fstab.bkp
-# See scripts/setup-fedora _setup_btrfs_mount_opts for full fstab update logic
+# See scripts/setup-fedora.sh _setup_btrfs_mount_opts for full fstab update logic
 sudo reboot
 
 sudo dnf install -y snapper libdnf5-plugin-actions inotify-tools make

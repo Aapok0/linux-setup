@@ -62,7 +62,6 @@ apps=(
     "vlc"
     "qalculator-qt"
     "openrgb"
-    "virtualbox virtualbox-host-modules-arch virtualbox-host-modules-lts virtualbox-guest-utils virtualbox-guest-iso"
     "qbittorrent"
 )
 
@@ -121,4 +120,16 @@ docker_packages=(
     "docker"
     "docker-buildx"
     "docker-compose"
+)
+
+# vagrant-libvirt is NOT packaged on Arch, so the setup script
+# installs it as a Vagrant plugin (Arch Wiki method).
+virt_packages=(
+    "qemu-full"
+    "libvirt"
+    "virt-install"
+    "virt-manager"
+    "dnsmasq"
+    "edk2-ovmf"
+    "vagrant"
 )

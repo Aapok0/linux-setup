@@ -3,3 +3,6 @@ logs/
 
 # Workspace files
 *.code-workspace
+
+# Vagrant local state
+.vagrant/

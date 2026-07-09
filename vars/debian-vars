@@ -62,8 +62,6 @@ apps=(
     "vlc"
     "qalculate-gtk"
     "openrgb"
-    "virtualbox"
-    "virtualbox-guest-utils"
     "qbittorrent"
 )
 
@@ -115,4 +113,16 @@ docker_packages=(
     "docker.io"
     "docker-compose-v2"
     "docker-buildx"
+)
+
+virt_packages=(
+    "qemu-system"
+    "qemu-utils"
+    "libvirt-daemon-system"
+    "libvirt-clients"
+    "virtinst"
+    "virt-manager"
+    "ovmf"
+    "vagrant"
+    "vagrant-libvirt"
 )

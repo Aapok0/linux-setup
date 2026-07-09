@@ -31,7 +31,7 @@ vr videos -> check xr-video-player-git later
 music -> spotify
 office tools? -> onlyoffice
 rgb -> openrgp
-vms -> virtualbox, setup virtmanager later?
+vms -> KVM/QEMU/libvirt + virt-manager, Vagrant (libvirt provider) for scripted boxes
 docker -> docker/moby installed, user added to docker group, daemon enabled
 calculator -> kcalc (krunner integration?), qalculator-qt?
 torrents -> qbittorrent

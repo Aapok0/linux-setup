@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Arch install entrypoint (fresh install, reinstall, or live-system backup).
+#
+# Usage:
+#   ./install arch
+#   ./install arch --reinstall
+#   ./install arch --backup
+#
+# Exit codes:
+#   0 - success
+#   1 - error
+#   2 - user cancelled (from install-arch*.sh)
 set -o pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,17 +80,17 @@ main() {
         fresh)
             LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch.log"
             _info "Arch Linux fresh install"
-            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch"
+            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch.sh"
             ;;
         reinstall)
             LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch-reinstall.log"
             _info "Arch Linux reinstall (preserves /home)"
-            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch-reinstall"
+            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch-reinstall.sh"
             ;;
         backup)
             LOGFILE="${REPO_ROOT}/logs/${timestamp}_install-arch-backup.log"
             _info "Arch reinstall config backup (live system)"
-            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch-backup"
+            LINUX_SETUP_LOGGING=1 LOGFILE="${LOGFILE}" "${REPO_ROOT}/scripts/install-arch-backup.sh"
             ;;
     esac
 

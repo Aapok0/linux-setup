@@ -23,6 +23,7 @@ SETUP_GRUB_BTRFS=true
 SETUP_GRUB_CRYPTOMOUNT=true
 SETUP_FEDORA_HIBERNATE=true
 FEDORA_HIBERNATE_SWAPFILE="/var/swap/swapfile"
+_linux_setup_apply_headless_defaults
 
 _dnf() {
     sudo dnf "$@"
@@ -148,23 +149,6 @@ _enable_rpmfusion() {
     _echo_run _dnf install -y \
         "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VERSION}.noarch.rpm" \
         "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VERSION}.noarch.rpm"
-}
-
-_setup_systemd_resolved() {
-    if [ -f "/etc/resolv.conf.bak" ]; then
-        _info "systemd-resolved already setup"
-        return 0
-    fi
-
-    if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q systemd; then
-        _info "systemd-resolved already in use"
-        _echo_run sudo systemctl enable --now systemd-resolved.service
-        return 0
-    fi
-
-    _echo_run sudo systemctl enable --now systemd-resolved.service
-    _echo_run sudo mv /etc/resolv.conf /etc/resolv.conf.bak
-    _echo_run sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 }
 
 _setup_nordvpn() {
@@ -301,12 +285,22 @@ _setup_snapper_configs() {
     else
         _info "Snapper root config already present (/.snapshots)"
     fi
+    _ensure_snapper_access root "$USERNAME"
 
+    local home_new=false
     if _is_btrfs /home && [ ! -d /home/.snapshots ]; then
         _info "Creating Snapper config for /home ..."
         _echo_run sudo snapper -c home create-config /home
+        home_new=true
     elif [ -d /home/.snapshots ]; then
         _info "Snapper home config already present (/home/.snapshots)"
+    fi
+
+    if _is_btrfs /home && [ -f /etc/snapper/configs/home ]; then
+        _ensure_snapper_access home "$USERNAME"
+        if $home_new; then
+            _apply_snapper_home_timeline home
+        fi
     fi
 
     _info "Relabeling snapper paths for SELinux (may take a while on large snapshot trees)..."
@@ -319,10 +313,6 @@ _setup_snapper_configs() {
         fi
     fi
 
-    _echo_run sudo snapper -c root set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes
-    if _is_btrfs /home && [ -f /etc/snapper/configs/home ]; then
-        _echo_run sudo snapper -c home set-config "ALLOW_USERS=${USERNAME}" SYNC_ACL=yes TIMELINE_CREATE=no
-    fi
 }
 
 _setup_snapper_updatedb() {
@@ -689,86 +679,94 @@ main() {
     _info "Setting up git user configuration..."
     _setup_git_config
 
-    _info "Installing dnf KDE packages..."
-    _install_packages "dnf kde" "${dnf_kde[@]}"
-    _info "Installing dnf apps..."
-    _install_packages "dnf apps" "${dnf_apps[@]}"
-    _setup_firefox_wayland
-    _install_ghostty
-    _install_ghostty_desktop_override
-    _install_cursor
-    _info "Installing dnf gaming packages..."
-    _install_packages "dnf gaming" "${dnf_gaming[@]}"
-    _info "Installing RPM Fusion free packages..."
-    _install_packages "rpmfusion free" "${rpmfusion_free_packages[@]}"
-    _info "Installing RPM Fusion nonfree packages..."
-    _install_packages "rpmfusion nonfree" "${rpmfusion_nonfree_packages[@]}"
-    _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
+    if ! _linux_setup_headless; then
+        _info "Installing dnf KDE packages..."
+        _install_packages "dnf kde" "${dnf_kde[@]}"
+        _info "Installing dnf apps..."
+        _install_packages "dnf apps" "${dnf_apps[@]}"
+        _setup_firefox_wayland
+        _install_ghostty
+        _install_ghostty_desktop_override
+        _install_cursor
+        _info "Installing dnf gaming packages..."
+        _install_packages "dnf gaming" "${dnf_gaming[@]}"
+        _info "Installing RPM Fusion free packages..."
+        _install_packages "rpmfusion free" "${rpmfusion_free_packages[@]}"
+        _info "Installing RPM Fusion nonfree packages..."
+        _install_packages "rpmfusion nonfree" "${rpmfusion_nonfree_packages[@]}"
+        _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
 
-    if command -v steamtinkerlaunch &>/dev/null; then
-        _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
-        _echo_run steamtinkerlaunch compat add
-    else
-        _warn "steamtinkerlaunch not installed; skip compat add (enable in flatpak_apps or install manually)"
-    fi
-
-    _info "Installing pip/pipx and extra Python CLI tools..."
-    _install_pkg "python3-pip"
-    _install_pkg "pipx"
-    for tool in "${pip_packages[@]}"; do
-        command -v "$tool" &>/dev/null && {
-            _info "$tool already available"
-            continue
-        }
-        if pipx list 2>/dev/null | grep -q "package ${tool} "; then
-            _info "$tool already installed via pipx"
-            continue
+        if command -v steamtinkerlaunch &>/dev/null; then
+            _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
+            _echo_run steamtinkerlaunch compat add
+        else
+            _warn "steamtinkerlaunch not installed; skip compat add (enable in flatpak_apps or install manually)"
         fi
-        _echo_run pipx install "$tool"
-    done
 
-    _info "Installing pyenv build dependencies..."
-    _install_packages "pyenv build deps" "${pyenv_build_packages[@]}"
+        _info "Installing pip/pipx and extra Python CLI tools..."
+        _install_pkg "python3-pip"
+        _install_pkg "pipx"
+        for tool in "${pip_packages[@]}"; do
+            command -v "$tool" &>/dev/null && {
+                _info "$tool already available"
+                continue
+            }
+            if pipx list 2>/dev/null | grep -q "package ${tool} "; then
+                _info "$tool already installed via pipx"
+                continue
+            fi
+            _echo_run pipx install "$tool"
+        done
 
-    _info "Installing pyenv for Python version management..."
-    if [ -d "$HOME/.pyenv/.git" ]; then
-        _info "Pyenv already installed at ~/.pyenv"
+        _info "Installing pyenv build dependencies..."
+        _install_packages "pyenv build deps" "${pyenv_build_packages[@]}"
+
+        _info "Installing pyenv for Python version management..."
+        if [ -d "$HOME/.pyenv/.git" ]; then
+            _info "Pyenv already installed at ~/.pyenv"
+        else
+            _info "Cloning pyenv..."
+            _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+            _info "Building pyenv..."
+            _echo_run bash -c 'cd "$HOME/.pyenv" && src/configure && make -C src'
+            _info "Pyenv installed to ~/.pyenv"
+            _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+            _out '  export PYENV_ROOT="$HOME/.pyenv"'
+            _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
+            _out '  eval "$(pyenv init --path)"'
+            _out '  eval "$(pyenv init -)"'
+        fi
+
+        _info "Installing nvm for Node version management..."
+        if [ -s "$HOME/.nvm/nvm.sh" ]; then
+            _info "nvm already installed at ~/.nvm"
+        else
+            _info "Downloading and installing nvm..."
+            _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'
+            _info "nvm installed"
+            _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
+            _out '  export NVM_DIR="$HOME/.nvm"'
+            _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+            _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+        fi
     else
-        _info "Cloning pyenv..."
-        _echo_run git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
-        _info "Building pyenv..."
-        _echo_run bash -c 'cd "$HOME/.pyenv" && src/configure && make -C src'
-        _info "Pyenv installed to ~/.pyenv"
-        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-        _out '  export PYENV_ROOT="$HOME/.pyenv"'
-        _out '  export PATH="$PYENV_ROOT/bin:$PATH"'
-        _out '  eval "$(pyenv init --path)"'
-        _out '  eval "$(pyenv init -)"'
-    fi
-
-    _info "Installing nvm for Node version management..."
-    if [ -s "$HOME/.nvm/nvm.sh" ]; then
-        _info "nvm already installed at ~/.nvm"
-    else
-        _info "Downloading and installing nvm..."
-        _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'
-        _info "nvm installed"
-        _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-        _out '  export NVM_DIR="$HOME/.nvm"'
-        _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-        _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+        _info "Headless mode: skipping KDE/apps/gaming/flatpak/pyenv/nvm stacks"
     fi
 
     _info "Doing initial setup for systemd-resolved (for DNS)..."
     _setup_systemd_resolved
 
-    _setup_fedora_hibernation
-
-    _setup_nordvpn
-
-    _setup_tailscale
+    if ! _linux_setup_headless; then
+        _setup_fedora_hibernation
+        _setup_nordvpn
+        _setup_tailscale
+    else
+        _info "Headless mode: skipping hibernate/NordVPN/Tailscale"
+    fi
 
     _setup_docker "$USERNAME" "${docker_packages[@]}"
+
+    _setup_virtualization "$USERNAME" "${virt_packages[@]}"
 
     _setup_finalize
 }
