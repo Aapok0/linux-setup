@@ -1,2 +1,5 @@
 # Ignore logs directory
 logs/
+
+# Workspace files
+*.code-workspace
