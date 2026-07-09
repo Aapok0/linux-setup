@@ -8,6 +8,7 @@
 # DevOps: terraform, ansible, kubectl, helm
 # Shell: zsh-plugins, atuin history import, shell switching
 # Applications: lazygit, yazi, atuin
+# Desktop: ibus (Ghostty dead keys on GTK 4.20+ Wayland; see dotfiles justfile)
 # Font: ttf-jetbrains-mono-nerd (JetBrainsMono Nerd Font)
 # Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
 # See: https://github.com/Aapok0/dotfiles
@@ -104,7 +105,6 @@ kde_packages=(
     "plasma-pa"
     "power-profiles-daemon"
     "bluedevil"
-    "ibus"
     "dolphin"
     "dolphin-plugins"
     "kdegraphics-thumbnailers"
