@@ -259,7 +259,7 @@ pacman -S nvidia nvidia-utils nvidia-lts
 VMWare:
 pacman -S xf86-video-vmware
 
-pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron ibus sddm kitty
+pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron sddm kitty
 
 systemctl enable sddm
 
@@ -450,7 +450,7 @@ pacman -S nvidia nvidia-utils nvidia-lts
 VMWare:
 pacman -S xf86-video-vmware
 
-pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron ibus sddm kitty
+pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron sddm kitty
 systemctl enable sddm
 
 grub-mkconfig -o /boot/grub/grub.cfg

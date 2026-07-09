@@ -570,7 +570,7 @@ pacman -S xf86-video-vmware
 Install KDE plasma related packages and other packages for basic function:
 
 ```bash
-pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron ibus sddm kitty
+pacman -S xorg plasma-desktop plasma-nm plasma-pa bluedevil kscreen kcron sddm kitty
 ```
 
 Enable the display manager:
