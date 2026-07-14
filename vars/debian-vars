@@ -5,13 +5,15 @@
 # Development: nodejs, npm, python3, build-essential, cmake
 # CLI tools: eza, bat, git-delta, zoxide, starship, btop, entr, jq, thefuck, tldr
 # Utilities: ffmpeg, p7zip-full, poppler-utils, imagemagick
-# DevOps: terraform, ansible, kubectl, helm
+# DevOps: tfswitch, ansible, kubectl, helm
 # Shell: zsh-plugins, atuin history import, shell switching
 # Applications: lazygit, yazi, atuin
 # Desktop: ibus (Ghostty dead keys on GTK 4.20+ Wayland; see dotfiles justfile)
 # Font: JetBrainsMono Nerd Font (downloaded from nerd-fonts releases)
-# Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
+# Linters & formatters: shellcheck shfmt stylua prettier ruff ty hadolint tflint ansible-lint taplo gitleaks luacheck
 # See: https://github.com/Aapok0/dotfiles
+#
+# Also installed by setup-debian.sh (not in justfile): Cursor (official APT repo) and nvm
 #
 # Packages kept here are those needed BEFORE running justfile or not included in justfile
 

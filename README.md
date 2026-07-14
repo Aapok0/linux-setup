@@ -13,11 +13,10 @@ The setup script detects (or accepts as argument) whether the system is Arch, De
 5. Installs additional packages not covered by the justfile (see `vars/`)
 6. Prompts for git user configuration (`~/.config/git/config.local`)
 7. Installs KDE Plasma packages, apps, and gaming packages
-8. Installs Cursor IDE (official repo on Fedora/Debian; `cursor-bin` AUR on Arch)
+8. Installs Cursor IDE (official vendor repo on Fedora/Debian; official `.deb` extract on Arch)
 9. Sets up NordVPN with systemd-resolved
-9. Registers Steam Tinker Launch as a Steam compatibility tool
 
-**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs). Desktop apps from AUR include `cursor-bin` (official `.deb`-based Cursor build).
+**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs). Desktop apps use **extra**, **Flatpak**, vendor installs (Cursor), or a small reviewed AUR set as needed. Set `PARU_SKIP_REVIEW=1` only for CI/containers.
 
 **Debian-specific:** Installs `nala` and apt tools, `ghostty` via [debian.griffo.io](https://ghostty.org/docs/install/binary#debian), Cursor via official APT repo, `pyenv`/`nvm` manually (no AUR), adds NordVPN repo.
 
@@ -274,6 +273,7 @@ Environment flags (set automatically by `tests/vm/provision.sh`):
 |----------|--------|
 | `LINUX_SETUP_NONINTERACTIVE=1` | Auto-answer wheel-sudo (yes), skip hostname/git prompts when pre-seeded |
 | `LINUX_SETUP_HEADLESS=1` | Skip KDE/gaming/flatpak/VPN/pyenv/nvm; keep core packages, dotfiles, docker, virt |
+| `PARU_SKIP_REVIEW=1` | Arch only: pass `--skipreview` to `paru` (CI/containers; default is PKGBUILD review) |
 
 Optional overrides: `LINUX_SETUP_GIT_NAME`, `LINUX_SETUP_GIT_EMAIL`, `LINUX_SETUP_HOSTNAME`.
 

@@ -18,8 +18,43 @@ SETUP_UFW=true
 SETUP_BTRFS_SNAPPER=true
 _linux_setup_apply_headless_defaults
 
+# Set PARU_SKIP_REVIEW=1 for CI/containers only; default is PKGBUILD review enabled.
+_paru_flags() {
+    local flags=(--noconfirm)
+    [ "${PARU_SKIP_REVIEW:-}" = "1" ] && flags+=(--skipreview)
+    printf '%s\n' "${flags[@]}"
+}
+
 _pkg_is_installed() {
     paru -Qs "$1" | grep -q "local.*$1 "
+}
+
+_pacman_pkg_is_installed() {
+    pacman -Qi "$1" &>/dev/null
+}
+
+_install_pacman_pkg() {
+    _pacman_pkg_is_installed "$1" && {
+        _info "Package $1 already installed"
+        return 0
+    }
+    _info "Installing $1"
+    _echo_run sudo pacman -S --needed --noconfirm "$1"
+}
+
+_install_pacman_packages() {
+    local category="$1"
+    shift
+    local packages=("$@")
+    [ ${#packages[@]} -eq 0 ] && return 0
+    [ -n "$category" ] && [ "$category" != "." ] && _info "Installing $category..."
+    for pkg in "${packages[@]}"; do
+        [ -z "$pkg" ] && continue
+        [[ "$pkg" == \#* ]] && continue
+        for single in $pkg; do
+            _install_pacman_pkg "$single"
+        done
+    done
 }
 
 _install_pkg() {
@@ -28,21 +63,26 @@ _install_pkg() {
         return 0
     }
     _info "Installing $1"
-    _echo_run paru "${2:---skipreview --noconfirm}" -S "$1"
+    # shellcheck disable=SC2046
+    _echo_run paru $(printf '%q ' $(_paru_flags)) -S "$1"
 }
 
 _install_packages() {
     local category="$1"
     shift
     local packages=("$@")
+    [ ${#packages[@]} -eq 0 ] && return 0
     [ -n "$category" ] && [ "$category" != "." ] && _info "Installing $category..."
     for pkg in "${packages[@]}"; do
+        [ -z "$pkg" ] && continue
+        [[ "$pkg" == \#* ]] && continue
         _pkg_is_installed "$pkg" && {
             _info "Package $pkg already installed"
             continue
         }
         _out "Installing $pkg"
-        _echo_run paru --skipreview -S "$pkg"
+        # shellcheck disable=SC2046
+        _echo_run paru $(printf '%q ' $(_paru_flags)) -S "$pkg"
     done
 }
 
@@ -161,7 +201,7 @@ _setup_snapper_rollback() {
     local src="${REPO_ROOT}/config/arch/snapper-rollback.conf"
     local root_src tmp
 
-    _install_pkg "snapper-rollback" "--skipreview --noconfirm"
+    _install_pkg "snapper-rollback"
 
     [ -f "$src" ] || {
         _warn "Missing ${src}; configure /etc/snapper-rollback.conf manually"
@@ -249,8 +289,76 @@ _setup_btrfs_snapper() {
     _setup_snapper_timers
     _setup_snapper_rollback
 
-    _info "Snapper setup complete (verify: snapper list; paru -S htop)"
+    _info "Snapper setup complete (verify: snapper list; sudo pacman -S htop)"
     _info "Rollback docs: instructions/install/arch-install.md#rollback-and-restore"
+}
+
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
+
+_install_cursor() {
+    if _cursor_installed; then
+        _info "Cursor already installed"
+        return 0
+    fi
+
+    local apt_base=https://downloads.cursor.com/aptrepo
+    local packages_url="${apt_base}/dists/stable/main/binary-amd64/Packages.gz"
+    local tmp deb_path filename expected_sha actual_sha
+
+    if ! command -v bsdtar &>/dev/null; then
+        _info "Installing bsdtar (libarchive) for Cursor .deb extraction..."
+        _echo_run sudo pacman -S --needed --noconfirm libarchive
+    fi
+
+    tmp=$(mktemp -d)
+
+    _info "Resolving latest Cursor .deb from official APT repository..."
+    curl -fsSL "$packages_url" | gzip -dc >"$tmp/Packages"
+    filename=$(awk '
+        $1 == "Package:" && $2 == "cursor" { pkg = 1; next }
+        pkg && $1 == "Filename:" { print $2; exit }
+    ' "$tmp/Packages")
+    expected_sha=$(awk '
+        $1 == "Package:" && $2 == "cursor" { pkg = 1; next }
+        pkg && $1 == "SHA256:" { print $2; exit }
+    ' "$tmp/Packages")
+
+    [ -n "$filename" ] && [ -n "$expected_sha" ] || {
+        _error "Could not parse Cursor package metadata from ${packages_url}"
+        rm -rf "$tmp"
+        return 1
+    }
+
+    deb_path="$tmp/cursor.deb"
+    _info "Downloading Cursor (${filename})..."
+    curl -fsSL -o "$deb_path" "${apt_base}/${filename}"
+
+    actual_sha=$(sha256sum "$deb_path" | awk '{print $1}')
+    if [ "$actual_sha" != "$expected_sha" ]; then
+        _error "Cursor .deb SHA256 mismatch (expected ${expected_sha}, got ${actual_sha})"
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    _info "Installing Cursor from official .deb (bundled Electron)..."
+    bsdtar -xf "$deb_path" -C "$tmp"
+    if [ -f "$tmp/data.tar.zst" ]; then
+        bsdtar -xf "$tmp/data.tar.zst" -C "$tmp"
+    elif [ -f "$tmp/data.tar.xz" ]; then
+        bsdtar -xf "$tmp/data.tar.xz" -C "$tmp"
+    elif [ -f "$tmp/data.tar.gz" ]; then
+        bsdtar -xf "$tmp/data.tar.gz" -C "$tmp"
+    else
+        _error "Unsupported Cursor .deb data archive format"
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    _echo_run sudo rsync -a "$tmp/usr/" /usr/
+    rm -rf "$tmp"
+    _info "Cursor installed from official .deb"
 }
 
 # ---------------------------------------------------------------------------
@@ -265,7 +373,7 @@ _setup_tailscale() {
     fi
 
     _info "Setting up Tailscale (official extra repository)..."
-    _install_pkg "tailscale" "--skipreview --noconfirm"
+    _install_pacman_pkg tailscale
     _ensure_systemd_enabled_now tailscaled.service
     _info "Tailscale installed and configured"
     _info "Connect with: sudo tailscale up"
@@ -306,10 +414,11 @@ main() {
         _echo_run sudo pacman -S cargo
         _echo_run makepkg -si
     fi
-    _echo_run paru --noconfirm -Syu
+    # shellcheck disable=SC2046
+    _echo_run paru $(printf '%q ' $(_paru_flags)) -Syu
 
     _info "Installing basic packages..."
-    _install_packages "basic packages" "${basic_packages[@]}"
+    _install_pacman_packages "basic packages" "${basic_packages[@]}"
 
     _setup_btrfs_snapper
 
@@ -320,7 +429,7 @@ main() {
     if $SETUP_UFW; then
         _info "No existing firewall service running."
         _info "Installing ufw and setting up firewall..."
-        _install_pkg "ufw" "--skipreview --noconfirm"
+        _install_pacman_pkg ufw
         _ensure_systemd_enabled_now ufw
     fi
 
@@ -349,9 +458,17 @@ main() {
         _install_packages "basic packages (AUR)" "${basic_packages_aur[@]}"
 
         _info "Installing KDE and additional apps..."
-        _install_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
-        _install_packages "apps" "${apps[@]}" "${apps_aur[@]}"
-        _install_packages "gaming packages" "${gaming_packages[@]}" "${gaming_packages_aur[@]}"
+        _install_pacman_packages "KDE plasma" "${kde_packages[@]}" "${kde_packages_aur[@]}"
+        _install_pacman_packages "apps" "${apps[@]}"
+        _install_packages "apps (AUR)" "${apps_aur[@]}"
+        _install_pacman_packages "gaming packages" "${gaming_packages[@]}"
+        _install_packages "gaming packages (AUR)" "${gaming_packages_aur[@]}"
+
+        _install_flatpak_apps "flatpak apps" "${flatpak_apps[@]}"
+
+        _install_cursor
+
+        _install_nvm
 
         _info "Doing initial setup for nordvpn..."
         _pkg_is_installed "openresolv" && _echo_run paru -R openresolv
@@ -361,13 +478,6 @@ main() {
         _ensure_systemd_enabled_now nordvpnd.service
 
         _setup_tailscale
-
-        if command -v steamtinkerlaunch &>/dev/null; then
-            _info "Setting Steam Tinker Launch as a Steam compatibility tool..."
-            _echo_run steamtinkerlaunch compat add
-        else
-            _warn "steamtinkerlaunch not installed; skipping compat add"
-        fi
 
         _install_ghostty_desktop_override
     else
