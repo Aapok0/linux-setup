@@ -74,39 +74,46 @@ _install_packages() {
     done
 }
 
-_install_flatpak_apps() {
-    local category="$1"
-    shift
-    local apps=("$@")
-    [ ${#apps[@]} -eq 0 ] && return 0
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
 
-    command -v flatpak &>/dev/null || {
-        _warn "flatpak not installed; skipping $category"
+_install_cursor() {
+    if _cursor_installed; then
+        _info "Cursor already installed"
         return 0
-    }
-
-    _info "Installing $category..."
-    if flatpak remote-list --system 2>/dev/null | grep -qx 'flathub'; then
-        _info "Flathub system remote already configured"
-    else
-        _echo_run sudo flatpak remote-add --if-not-exists --system flathub \
-            https://flathub.org/repo/flathub.flatpakrepo
     fi
-    for app in "${apps[@]}"; do
-        [ -z "$app" ] && continue
-        [[ "$app" == \#* ]] && continue
-        flatpak list --app --system 2>/dev/null | grep -q "$app" && {
-            _info "Flatpak $app already installed"
-            continue
-        }
-        _out "Installing flatpak $app"
-        _echo_run sudo flatpak install -y --system flathub "$app"
-    done
-}
 
-# ---------------------------------------------------------------------------
-# Services
-# ---------------------------------------------------------------------------
+    local repo_file=/etc/yum.repos.d/cursor.repo
+    local key_url=https://downloads.cursor.com/keys/anysphere.asc
+
+    if ! rpm -q gpg-pubkey-62e492d6-62e492d6 &>/dev/null; then
+        _info "Importing Cursor GPG key..."
+        _echo_run sudo rpm --import "$key_url"
+    fi
+
+    if [ ! -f "$repo_file" ]; then
+        _info "Adding Cursor DNF repository..."
+        printf '%s\n' \
+            '[cursor]' \
+            'name=Cursor' \
+            'baseurl=https://downloads.cursor.com/yumrepo' \
+            'enabled=1' \
+            'gpgcheck=1' \
+            "gpgkey=${key_url}" \
+            'repo_gpgcheck=1' |
+            _echo_run sudo tee "$repo_file" >/dev/null
+    fi
+
+    _info "Installing Cursor from official repository..."
+    if ! _echo_run sudo dnf install -y cursor; then
+        if rpm -q cursor &>/dev/null; then
+            _warn "dnf exited non-zero but cursor is installed (likely first-run GPG prompt)"
+            return 0
+        fi
+        return 1
+    fi
+}
 
 _install_ghostty() {
     command -v ghostty &>/dev/null && {
@@ -738,17 +745,7 @@ main() {
         fi
 
         _info "Installing nvm for Node version management..."
-        if [ -s "$HOME/.nvm/nvm.sh" ]; then
-            _info "nvm already installed at ~/.nvm"
-        else
-            _info "Downloading and installing nvm..."
-            _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'
-            _info "nvm installed"
-            _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-            _out '  export NVM_DIR="$HOME/.nvm"'
-            _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-            _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
-        fi
+        _install_nvm
     else
         _info "Headless mode: skipping KDE/apps/gaming/flatpak/pyenv/nvm stacks"
     fi

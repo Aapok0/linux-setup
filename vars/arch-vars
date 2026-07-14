@@ -5,13 +5,15 @@
 # Development: nodejs, npm, python, build tools, cmake
 # CLI tools: eza, bat, git-delta, zoxide, starship, ripgrep, fd, fzf, btop, entr, jq, thefuck, tldr
 # Utilities: ffmpeg, p7zip, poppler, imagemagick
-# DevOps: terraform, ansible, kubectl, helm
+# DevOps: tfswitch, ansible, kubectl, helm
 # Shell: zsh-plugins, atuin history import, shell switching
 # Applications: lazygit, yazi, atuin
 # Desktop: ibus (Ghostty dead keys on GTK 4.20+ Wayland; see dotfiles justfile)
 # Font: ttf-jetbrains-mono-nerd (JetBrainsMono Nerd Font)
-# Linters & formatters: installed in NeoVim via :MasonInstall shellcheck shfmt stylua prettier ruff hadolint tflint ansible-lint
+# Linters & formatters: shellcheck shfmt stylua prettier ruff ty hadolint tflint ansible-lint taplo gitleaks luacheck
 # See: https://github.com/Aapok0/dotfiles
+#
+# Also installed by setup-arch.sh (not in justfile): Cursor (official .deb) and nvm
 #
 # Packages kept here are those needed BEFORE running justfile or not included in justfile
 
@@ -43,15 +45,11 @@ basic_packages=(
     "snap-pac"
     "grub-btrfs"
     "inotify-tools"
+    "azure-cli"
+    "python-pipx"
 )
 
-basic_packages_aur=(
-    "azure-cli"
-    "tfswitch"
-    #"flyctl"
-    "python-pipx"
-    "nvm"
-)
+basic_packages_aur=()
 
 apps=(
     "ghostty"
@@ -61,23 +59,24 @@ apps=(
     "mpv"
     "haruna"
     "vlc"
-    "qalculator-qt"
+    "qalculate-qt"
     "openrgb"
     "qbittorrent"
+    "libreoffice-fresh"
+    "bitwarden"
+    "signal-desktop"
+    "btrfs-assistant"
+    "spotify-launcher"
 )
 
 apps_aur=(
-    "cursor-bin"
-    "spotify"
-    "bitwarden"
     "nordvpn-bin"
-    "signal-desktop"
-    "whatsapp-linux-desktop-bin"
-    "btrfs-assistant"
-    "onlyoffice-bin"
-    #"vr-video-player"
-    #"xr-video-player-git"
-    "vk-hdr-layer-kwin6-git" # for mpv hdr
+    "razer-nari-pipewire-profile"
+)
+
+flatpak_apps=(
+    "com.rtosta.zapzap"
+    "net.davidotek.pupgui2"
 )
 
 gaming_packages=(
@@ -87,11 +86,10 @@ gaming_packages=(
     "lib32-mangohud"
     "gamescope"
     "wine wine-mono winetricks"
+    "protontricks"
 )
 
 gaming_packages_aur=(
-    "steamtinkerlaunch"
-    "protontricks protonup-qt"
     "xone-dkms"
     "xone-dongle-firmware"
     #"runelite"

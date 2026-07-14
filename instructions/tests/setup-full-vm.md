@@ -119,7 +119,7 @@ After logging into Plasma as your test user:
 - [ ] `docker run hello-world` in a terminal (may need `newgrp docker` or re-login)
 - [ ] `virt-manager` opens (libvirt group)
 - [ ] Dotfiles: `ls -l ~/.config/nvim` → symlink into `~/Workspace/dotfiles`
-- [ ] `cursor` in app menu (Debian/Fedora; Arch AUR path)
+- [ ] `cursor` in app menu (official vendor install on all distros)
 - [ ] Steam / gaming apps if you care about that slice
 - [ ] Review `logs/*_setup.log` on the guest for warnings
 

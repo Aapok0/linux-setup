@@ -623,12 +623,13 @@ paru -Syu
 ### Install snapshot and boot tools
 
 ```bash
-paru -S snapper snap-pac grub-btrfs inotify-tools rsync snapper-rollback
+sudo pacman -S snapper snap-pac grub-btrfs inotify-tools rsync
+paru -S snapper-rollback   # AUR — review PKGBUILD; live-ISO @ restore CLI
 ```
 
 - **snap-pac** — [extra] repo; pre/post Snapper snapshots around `pacman` transactions
 - **grub-btrfs** — [extra]; btrfs snapshot entries in GRUB (`grub-btrfsd` watches `/.snapshots`)
-- **snapper-rollback** — [AUR]; CLI live-ISO / emergency `@` subvolume restore (see [rollback](#c--restore--from-live-iso))
+- **snapper-rollback** — [AUR](https://aur.archlinux.org/packages/snapper-rollback); upstream [jrabinow/snapper-rollback](https://github.com/jrabinow/snapper-rollback). CLI live-ISO / emergency `@` subvolume restore (see [rollback](#c--restore--from-live-iso)). `./setup arch` installs it with PKGBUILD review enabled.
 
 Optional AUR: **snap-pac-grub** — refreshes GRUB immediately after snap-pac (usually redundant if `grub-btrfsd` is running).
 
@@ -765,10 +766,10 @@ cd ~/Workspace/linux-setup
 ./setup arch
 ```
 
-Install **btrfs-assistant** (optional GUI; also in `setup arch` via AUR apps):
+Install **btrfs-assistant** (optional GUI; also in `setup arch` via extra apps):
 
 ```bash
-paru -S btrfs-assistant
+sudo pacman -S btrfs-assistant
 ```
 
 ---
@@ -781,7 +782,7 @@ This layout follows the [Arch Wiki suggested btrfs + Snapper layout](https://wik
 
 | Tool | What it does | Restores `/boot`? |
 |------|----------------|-------------------|
-| **btrfs-assistant** (GUI, extra/AUR) | Replaces `@` (or `@home`) with a Snapper snapshot subvolume; backs up current `@` first | **No** — restore `/boot` separately (below) |
+| **btrfs-assistant** (GUI, extra) | Replaces `@` (or `@home`) with a Snapper snapshot subvolume; backs up current `@` first | **No** — restore `/boot` separately (below) |
 | **snapper-rollback** (AUR CLI) | Same `@` subvolume swap as Wiki/live ISO procedure; best when system won't boot | **No** — restore `/boot` separately |
 | **grub-btrfs menu** | Boots a **read-only** snapshot for testing/recovery | N/A — overlay session; use Restore to make permanent |
 

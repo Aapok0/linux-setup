@@ -64,6 +64,7 @@ case "$tier" in
         ;;
     smoke)
         export LOGFILE=/tmp/setup.log HOME=/root
+        [ "$distro" = arch ] && export PARU_SKIP_REVIEW=1
         mkdir -p "$HOME/Workspace/dotfiles" "$HOME/.config/git"
         printf '[user]\n\tname = test\n\temail = test@example.com\n' \
             >"$HOME/.config/git/config.local"

@@ -46,6 +46,42 @@ _install_packages() {
 }
 
 # ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
+
+_install_cursor() {
+    if _cursor_installed; then
+        _info "Cursor already installed"
+        return 0
+    fi
+
+    local list_file=/etc/apt/sources.list.d/cursor.list
+    local keyring=/usr/share/keyrings/cursor.gpg
+
+    if [ ! -f "$list_file" ]; then
+        _info "Adding Cursor APT repository..."
+        _echo_run sudo mkdir -p /usr/share/keyrings
+        _echo_run curl -fsSL https://downloads.cursor.com/keys/anysphere.asc |
+            sudo gpg --dearmor -o "$keyring"
+        printf '%s\n' \
+            "deb [signed-by=${keyring}] https://downloads.cursor.com/aptrepo stable main" |
+            _echo_run sudo tee "$list_file" >/dev/null
+        if command -v nala &>/dev/null; then
+            _echo_run sudo nala update
+        else
+            _echo_run sudo apt-get update
+        fi
+    fi
+
+    _info "Installing Cursor from official repository..."
+    if command -v nala &>/dev/null; then
+        _echo_run sudo nala install -y cursor
+    else
+        _echo_run sudo apt-get install -y cursor
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Services
 # ---------------------------------------------------------------------------
 
@@ -197,18 +233,7 @@ main() {
             _info "Pyenv already installed"
         fi
 
-        _info "Installing nvm for Node version management..."
-        if [ -s "$HOME/.nvm/nvm.sh" ]; then
-            _info "nvm already installed at ~/.nvm"
-        else
-            _info "Downloading and installing nvm..."
-            _echo_run curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash
-            _info "nvm installed"
-            _info "Add the following to your shell startup file (~/.zshrc or ~/.bashrc):"
-            _out '  export NVM_DIR="$HOME/.nvm"'
-            _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-            _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
-        fi
+        _install_nvm
 
         _info "Setting up NordVPN..."
         if ! command -v nordvpn &>/dev/null; then

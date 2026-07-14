@@ -8,7 +8,7 @@
 #   1. Logging
 #   2. Setup runtime (headless mode, error counter, init_logging)
 #   3. Interactive prompts
-#   4. Shared setup helpers
+#   4. Shared setup helpers (_cursor_installed, _install_nvm, _install_flatpak_apps, docker, virt, …)
 #   5. Snapper helpers (btrfs setup-arch + setup-fedora)
 #
 # Exit codes:
@@ -469,102 +469,74 @@ _ensure_ssh_ed25519_key() {
     [ -f "${key}.pub" ] && _echo_run chmod 644 "${key}.pub"
 }
 
-# --- Applications ---
+# --- Applications (shared detection + cross-distro installers) ---
 
 _cursor_installed() {
     command -v cursor &>/dev/null && return 0
+    [ -x /usr/share/cursor/cursor ] && return 0
     rpm -q cursor &>/dev/null && return 0
     dpkg -l cursor 2>/dev/null | grep -q '^ii'
 }
 
-_install_cursor_fedora() {
-    local repo_file=/etc/yum.repos.d/cursor.repo
-    local key_url=https://downloads.cursor.com/keys/anysphere.asc
-
-    # Import key before first metadata fetch — avoids repomd.xml GPG error on fresh repo
-    if ! rpm -q gpg-pubkey-62e492d6-62e492d6 &>/dev/null; then
-        _info "Importing Cursor GPG key..."
-        _echo_run sudo rpm --import "$key_url"
-    fi
-
-    if [ ! -f "$repo_file" ]; then
-        _info "Adding Cursor DNF repository..."
-        printf '%s\n' \
-            '[cursor]' \
-            'name=Cursor' \
-            'baseurl=https://downloads.cursor.com/yumrepo' \
-            'enabled=1' \
-            'gpgcheck=1' \
-            "gpgkey=${key_url}" \
-            'repo_gpgcheck=1' |
-            _echo_run sudo tee "$repo_file" >/dev/null
-    fi
-
-    if rpm -q cursor &>/dev/null; then
-        _info "Cursor already installed"
+_install_nvm() {
+    if [ -s "$HOME/.nvm/nvm.sh" ]; then
+        _info "nvm already installed at ~/.nvm"
         return 0
     fi
 
-    _info "Installing Cursor from official repository..."
-    if ! _echo_run sudo dnf install -y cursor; then
-        if rpm -q cursor &>/dev/null; then
-            _warn "dnf exited non-zero but cursor is installed (likely first-run GPG prompt)"
+    _info "Downloading and installing nvm..."
+    _echo_run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'
+    _info "nvm installed"
+    _info "Add the following to your shell startup file if not already present:"
+    _out '  export NVM_DIR="$HOME/.nvm"'
+    _out '  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+    _out '  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+}
+
+_install_flatpak_apps() {
+    local category="$1"
+    shift
+    local apps=("$@")
+    [ ${#apps[@]} -eq 0 ] && return 0
+
+    if ! command -v flatpak &>/dev/null; then
+        _info "flatpak not found; installing..."
+        if command -v pacman &>/dev/null; then
+            _echo_run sudo pacman -S --needed --noconfirm flatpak
+        elif command -v dnf &>/dev/null; then
+            _echo_run sudo dnf install -y flatpak
+        elif command -v nala &>/dev/null; then
+            _echo_run sudo nala install -y flatpak
+        elif command -v apt-get &>/dev/null; then
+            _echo_run sudo apt-get install -y flatpak
+        else
+            _warn "flatpak not installed and no supported package manager found; skipping $category"
             return 0
         fi
-        return 1
-    fi
-}
-
-_install_cursor_debian() {
-    local list_file=/etc/apt/sources.list.d/cursor.list
-    local keyring=/usr/share/keyrings/cursor.gpg
-
-    if [ ! -f "$list_file" ]; then
-        _info "Adding Cursor APT repository..."
-        _echo_run sudo mkdir -p /usr/share/keyrings
-        _echo_run curl -fsSL https://downloads.cursor.com/keys/anysphere.asc |
-            sudo gpg --dearmor -o "$keyring"
-        printf '%s\n' \
-            "deb [signed-by=${keyring}] https://downloads.cursor.com/aptrepo stable main" |
-            _echo_run sudo tee "$list_file" >/dev/null
-        if command -v nala &>/dev/null; then
-            _echo_run sudo nala update
-        else
-            _echo_run sudo apt-get update
-        fi
     fi
 
-    if dpkg -l cursor 2>/dev/null | grep -q '^ii'; then
-        _info "Cursor already installed"
+    command -v flatpak &>/dev/null || {
+        _warn "flatpak still not available after install attempt; skipping $category"
         return 0
-    fi
+    }
 
-    _info "Installing Cursor from official repository..."
-    if command -v nala &>/dev/null; then
-        _echo_run sudo nala install -y cursor
+    _info "Installing $category..."
+    if flatpak remote-list --system 2>/dev/null | grep -qx 'flathub'; then
+        _info "Flathub system remote already configured"
     else
-        _echo_run sudo apt-get install -y cursor
+        _echo_run sudo flatpak remote-add --if-not-exists --system flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
     fi
-}
-
-_install_cursor() {
-    if _cursor_installed; then
-        _info "Cursor already installed"
-        return 0
-    fi
-
-    if [ -f /etc/fedora-release ] || grep -q 'ID=fedora' /etc/os-release 2>/dev/null; then
-        _install_cursor_fedora
-        return $?
-    fi
-
-    if grep -qE 'ID=debian|ID_LIKE=.*debian' /etc/os-release 2>/dev/null; then
-        _install_cursor_debian
-        return $?
-    fi
-
-    _warn "Cursor install not configured for this distribution"
-    return 0
+    for app in "${apps[@]}"; do
+        [ -z "$app" ] && continue
+        [[ "$app" == \#* ]] && continue
+        flatpak list --app --system 2>/dev/null | grep -q "$app" && {
+            _info "Flatpak $app already installed"
+            continue
+        }
+        _out "Installing flatpak $app"
+        _echo_run sudo flatpak install -y --system flathub "$app"
+    done
 }
 
 # --- Services (caller must define _install_packages in setup-*.sh) ---
