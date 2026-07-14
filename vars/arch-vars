@@ -59,7 +59,7 @@ apps=(
     "mpv"
     "haruna"
     "vlc"
-    "qalculator-qt"
+    "qalculate-qt"
     "openrgb"
     "qbittorrent"
     "libreoffice-fresh"
