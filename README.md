@@ -16,7 +16,12 @@ The setup script detects (or accepts as argument) whether the system is Arch, De
 8. Installs Cursor IDE (official vendor repo on Fedora/Debian; official `.deb` extract on Arch)
 9. Sets up NordVPN with systemd-resolved
 
-**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs). Desktop apps use **extra**, **Flatpak**, vendor installs (Cursor), or a small reviewed AUR set as needed. Set `PARU_SKIP_REVIEW=1` only for CI/containers.
+**Arch-specific:** Enables multilib, installs `paru` (AUR helper), configures btrfs Snapper rollback (when root is btrfs). Desktop apps use **extra**, **Flatpak**, vendor installs (Cursor), or a small reviewed AUR set as needed. Set `PARU_SKIP_REVIEW=1` only for CI/containers. Audit installed vs expected AUR packages:
+
+```bash
+./scripts/aur-audit.sh   # full profile; PKGBUILDs in logs/<timestamp>_aur-audit.log; exit 1 on fetch failure
+./scripts/aur-audit.sh --headless   # match LINUX_SETUP_HEADLESS=1 setup footprint
+```
 
 **Debian-specific:** Installs `nala` and apt tools, `ghostty` via [debian.griffo.io](https://ghostty.org/docs/install/binary#debian), Cursor via official APT repo, `pyenv`/`nvm` manually (no AUR), adds NordVPN repo.
 
@@ -243,8 +248,8 @@ not GitHub-hosted CI).
 # Fedora/Debian: distro package (also installed by setup-* virt_packages)
 sudo dnf install vagrant vagrant-libvirt      # Fedora
 sudo apt install vagrant vagrant-libvirt      # Debian
-# Arch: plugin only (not in repos)
-sudo pacman -S vagrant
+# Arch: vagrant is AUR-only (virt_packages_aur); plugin not in repos
+paru -S vagrant
 vagrant plugin install vagrant-libvirt
 ```
 

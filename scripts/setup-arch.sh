@@ -489,7 +489,7 @@ main() {
 
     _setup_docker "$USERNAME" "${docker_packages[@]}"
 
-    _setup_virtualization "$USERNAME" "${virt_packages[@]}"
+    _setup_virtualization "$USERNAME" "${virt_packages[@]}" "${virt_packages_aur[@]}"
     _install_vagrant_libvirt_plugin
 
     _setup_finalize
