@@ -554,13 +554,48 @@ _setup_docker() {
     _ensure_systemd_enabled_now docker.service
 }
 
+_virt_pkg_is_aur() {
+    local needle=$1
+    local pkg single
+    for pkg in "${virt_packages_aur[@]}"; do
+        [ -z "$pkg" ] && continue
+        [[ "$pkg" == \#* ]] && continue
+        for single in $pkg; do
+            [ "$single" = "$needle" ] && return 0
+        done
+    done
+    return 1
+}
+
 _setup_virtualization() {
     local user=$1
     shift
     local packages=("$@")
+    local pkg single
+    local -a pacman_pkgs=() aur_pkgs=()
+
+    : "${virt_packages_aur:=()}"
 
     _info "Setting up virtualization (KVM/QEMU/libvirt + Vagrant)..."
-    _install_packages "virtualization" "${packages[@]}"
+
+    if declare -p virt_packages_aur &>/dev/null 2>&1 &&
+        declare -f _install_pacman_packages &>/dev/null; then
+        for pkg in "${packages[@]}"; do
+            [ -z "$pkg" ] && continue
+            [[ "$pkg" == \#* ]] && continue
+            for single in $pkg; do
+                if _virt_pkg_is_aur "$single"; then
+                    aur_pkgs+=("$single")
+                else
+                    pacman_pkgs+=("$single")
+                fi
+            done
+        done
+        _install_pacman_packages "virtualization" "${pacman_pkgs[@]}"
+        _install_packages "virtualization (AUR)" "${aur_pkgs[@]}"
+    else
+        _install_packages "virtualization" "${packages[@]}"
+    fi
 
     _ensure_user_in_group "$user" libvirt
     if getent group kvm &>/dev/null; then

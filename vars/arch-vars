@@ -129,5 +129,22 @@ virt_packages=(
     "virt-manager"
     "dnsmasq"
     "edk2-ovmf"
+)
+
+virt_packages_aur=(
     "vagrant"
+)
+
+# Arrays scanned by scripts/aur-audit.sh (all *_aur groups in this file).
+aur_package_arrays=(
+    basic_packages_aur
+    apps_aur
+    gaming_packages_aur
+    kde_packages_aur
+    virt_packages_aur
+)
+
+# AUR packages installed by setup-arch outside *_aur arrays.
+aur_setup_packages=(
+    "paru"
 )
