@@ -11,7 +11,7 @@ env:
   # renovate: datasource=github-releases depName=koalaman/shellcheck
   SHELLCHECK_VERSION: v0.11.0
   # renovate: datasource=github-releases depName=mvdan/sh
-  SHFMT_VERSION: v3.13.1
+  SHFMT_VERSION: v3.14.0
 
 jobs:
   shellcheck:
